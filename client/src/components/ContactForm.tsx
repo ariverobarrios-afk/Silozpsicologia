@@ -21,6 +21,8 @@ const contactSchema = z.object({
   whatToWork: z.string().optional(),
   previousTherapy: z.string().optional(),
   wantsProcess: z.string().optional(),
+  // Honeypot anti-spam: invisible para humanos; si se rellena, es un bot.
+  website: z.string().optional(),
 });
 
 type ContactFormData = z.infer<typeof contactSchema>;
@@ -73,6 +75,27 @@ export default function ContactForm({ sessionType, formLocation = "home", onSucc
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Honeypot anti-spam: oculto para humanos, atractivo para bots. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+      >
+        <label htmlFor="website">No rellenar este campo</label>
+        <input
+          id="website"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          {...register("website")}
+        />
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="name">Nombre completo *</Label>
         <Input

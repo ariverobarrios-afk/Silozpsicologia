@@ -1,7 +1,7 @@
 # Siloz Psicología — Migración a Vercel
 
-Sitio estático (React + Vite) ya desacoplado de Manus. No necesita base de datos
-ni servidor: se despliega como sitio estático en Vercel.
+Sitio estático (React + Vite) con una pequeña función serverless para el
+formulario de contacto. Se despliega en Vercel sin necesidad de base de datos.
 
 ## ✅ Lo que ya está hecho
 - Frontend completo (Home, Ansiedad, Depresión, Blog, Recursos, Aviso Legal, Gracias).
@@ -9,18 +9,16 @@ ni servidor: se despliega como sitio estático en Vercel.
   e incrustados en `client/src/data/content.ts`.
 - SEO intacto: Google Tag Manager, verificación de Search Console, Open Graph,
   Schema.org, sitemap.xml y robots.txt.
-- Formulario de contacto reconectado vía **Web3Forms** (envía directo a tu email,
-  sin servidor).
+- Formulario de contacto conectado a una función serverless (`api/contact.ts`)
+  que envía el lead por email (**Resend**) y, opcionalmente, lo registra en
+  **Google Sheets**. Incluye honeypot anti-spam.
 
-## ⚠️ ANTES DE PUBLICAR — 1 paso obligatorio (2 minutos)
-El formulario necesita una clave gratuita de Web3Forms:
-1. Entra en https://web3forms.com
-2. Escribe el email donde Silvia quiere recibir los mensajes y pulsa "Create Access Key".
-   Te llega la clave al instante por correo.
-3. Abre el archivo `client/src/const.ts` y sustituye `PEGA_AQUI_TU_ACCESS_KEY`
-   por esa clave. Guarda.
+## ⚠️ ANTES DE PUBLICAR — configurar el formulario
+El formulario necesita una clave de **Resend** (gratis) configurada como
+variable de entorno en Vercel. El paso a paso completo (Resend + Google Sheets)
+está en **`FORMULARIO-SETUP.md`**.
 
-(Hasta que hagas esto, el formulario dará error al enviar.)
+(Hasta que añadas `RESEND_API_KEY` en Vercel, el formulario dará error al enviar.)
 
 ## 🚀 Desplegar en Vercel
 ### Opción A — con GitHub (recomendada)

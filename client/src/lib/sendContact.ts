@@ -1,5 +1,3 @@
-import { WEB3FORMS_ACCESS_KEY } from "@/const";
-
 export interface ContactPayload {
   name: string;
   email: string;
@@ -9,39 +7,29 @@ export interface ContactPayload {
   whatToWork?: string;
   previousTherapy?: string;
   wantsProcess?: string;
+  // Honeypot anti-spam (campo oculto). Si viene relleno, es un bot.
+  website?: string;
 }
 
-/** Envía el formulario de contacto al email de Silvia vía Web3Forms (sin servidor). */
+/**
+ * Envía el formulario de contacto a la función serverless `/api/contact`,
+ * que reenvía el lead por email (Resend) y lo registra en Google Sheets.
+ */
 export async function sendContact(data: ContactPayload): Promise<void> {
-  const na = "No indicado";
-  const resumen = [
-    `Nombre completo: ${data.name || na}`,
-    `Teléfono: ${data.phone || na}`,
-    `Email: ${data.email || na}`,
-    `Tipo de sesión: ${data.sessionType || na}`,
-    `¿Qué quiere trabajar?: ${data.whatToWork || na}`,
-    `Terapia previa: ${data.previousTherapy || na}`,
-    `¿Busca proceso terapéutico?: ${data.wantsProcess || na}`,
-    ``,
-    `Mensaje:`,
-    `${data.message || na}`,
-  ].join("\n");
-
-  const response = await fetch("https://api.web3forms.com/submit", {
+  const response = await fetch("/api/contact", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      access_key: WEB3FORMS_ACCESS_KEY,
-      subject: `⭐ Nuevo lead web: ${data.name} — ${data.phone || data.email}`,
-      from_name: "Web Siloz Psicología",
-      name: data.name,
-      email: data.email,
-      message: resumen,
-    }),
+    body: JSON.stringify(data),
   });
 
-  const result = await response.json();
-  if (!result.success) {
+  let result: { success?: boolean; message?: string } = {};
+  try {
+    result = await response.json();
+  } catch {
+    // Respuesta no-JSON (p. ej. error de plataforma): tratamos por el status.
+  }
+
+  if (!response.ok || !result.success) {
     throw new Error(result.message || "No se pudo enviar el mensaje");
   }
 }
