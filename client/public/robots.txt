@@ -1,0 +1,11 @@
+# robots.txt para Siloz Psicología
+
+# Permitir a todos los bots rastrear el sitio
+User-agent: *
+Allow: /
+
+# Referencia al sitemap
+Sitemap: https://silozpsicologia.com/sitemap.xml
+
+# Información adicional
+# Host: silozpsicologia.com
