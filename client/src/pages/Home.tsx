@@ -85,7 +85,7 @@ export default function Home() {
                 Terapia psicológica online
               </h1>
               <p className="text-lg md:text-xl text-muted-foreground mb-8 font-light leading-relaxed">
-                Para trabajar ansiedad, autoestima y relaciones desde un enfoque terapéutico profundo y personalizado.
+                Para trabajar ansiedad, autoestima y relaciones desde un enfoque terapéutico integrador.
               </p>
               <Button
                 onClick={() => openContactDialog()}
@@ -144,9 +144,9 @@ export default function Home() {
               <div>
                 <h2 className="font-serif text-4xl font-bold mb-6 text-primary">Conócenos</h2>
                 <p className="text-lg text-foreground/80 leading-relaxed mb-8">
-                  En Siloz Psicología encontrarás un espacio de escucha, sin prejuicios ni
-                  expectativas, donde trabajar las dificultades emocionales, superar los desafíos y
-                  conseguir desde el autoconocimiento de acuerdo a tus necesidades.
+                  En Siloz Psicología encontrarás un espacio de escucha sin prejuicios ni
+                  expectativas, donde trabajar tus dificultades emocionales, comprender lo que te
+                  ocurre y desarrollar recursos para afrontar tu malestar.
                 </p>
                 <div className="bg-secondary/50 p-6 rounded-3xl">
                   <p className="text-lg font-medium mb-4">¿Listo para dar el primer paso?</p>
@@ -266,7 +266,7 @@ export default function Home() {
                         Evaluación terapéutica
                       </h3>
                       <p className="text-foreground/70">
-                        Exploramos patrones emocionales, relacionales y personales que están influyendo en tu bienestar.
+                        Exploramos patrones emocionales, relacionales y personales que están influyendo en tu malestar.
                       </p>
                     </div>
                   </div>
