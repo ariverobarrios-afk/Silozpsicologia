@@ -59,7 +59,7 @@ export function overdueDebts(
   ];
 }
 
-// Motivo por el que una cita debe verse en rojo (null si está todo en orden).
+// Motivo por el que una cita debe verse en rojo: solo si ella misma está sin pagar.
 export function paymentAlert(
   a: Appointment,
   appointments: Appointment[],
@@ -69,8 +69,17 @@ export function paymentAlert(
   if (a.status === "cancelada") return null;
   if (isPendingPayment(a)) return "Sesión pendiente de pago";
   if (a.bono_id && bonos.some((b) => b.id === a.bono_id && !b.paid_at)) return "Bono pendiente de pago";
-  if (a.status === "programada" && overdueDebts(a.patient_id, appointments, bonos, now).length > 0) {
-    return "El paciente tiene pagos pendientes";
-  }
+  // Una cita ya pagada se ve normal aunque el paciente deba otra cosa: esas
+  // deudas se avisan al abrir la cita y en la pestaña «Pagos».
   return null;
+}
+
+// Qué sesión del bono es esta cita (1, 2, …) por orden de fecha; null si no va con bono.
+export function bonoSessionNumber(a: Appointment, appointments: Appointment[]): number | null {
+  if (!a.bono_id || a.status === "cancelada") return null;
+  const ordered = appointments
+    .filter((x) => x.bono_id === a.bono_id && x.status !== "cancelada")
+    .sort((x, y) => x.starts_at.localeCompare(y.starts_at));
+  const i = ordered.findIndex((x) => x.id === a.id);
+  return i === -1 ? null : i + 1;
 }
