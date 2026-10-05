@@ -216,7 +216,10 @@ export function WeekCalendar({
                         }}
                         className={cn(
                           "absolute z-10 overflow-hidden rounded-[6px] border-l-4 px-1.5 py-1 text-left text-xs leading-tight shadow-sm transition-colors",
-                          alert ? ALERT_BLOCK_CLASS : isFirst ? FIRST_BLOCK_CLASS : BLOCK_CLASS[a.status]
+                          alert ? ALERT_BLOCK_CLASS
+                          // Primera sesión ya pagada: color normal (sigue llevando «1ª sesión»).
+                          : isFirst && !a.paid_at ? FIRST_BLOCK_CLASS
+                          : BLOCK_CLASS[a.status]
                         )}
                         style={{
                           top: top + 1,
