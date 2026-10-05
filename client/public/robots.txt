@@ -4,6 +4,11 @@
 User-agent: *
 Allow: /
 
+# Área privada de pacientes: no indexar
+Disallow: /acceso
+Disallow: /panel
+Disallow: /mi-area
+
 # Referencia al sitemap
 Sitemap: https://silozpsicologia.com/sitemap.xml
 
