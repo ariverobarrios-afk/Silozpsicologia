@@ -65,6 +65,14 @@ export default function NuevaContrasena() {
               <Input id="repeat" type="password" autoComplete="new-password" required minLength={8}
                 value={repeat} onChange={(e) => setRepeat(e.target.value)} />
             </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              En tu área privada solo verás y guardaremos tus datos de contacto, tus citas y el estado
+              de tus pagos; nunca notas clínicas. Puedes consultar cómo tratamos tus datos y tus derechos
+              en la{" "}
+              <Link href="/aviso-legal#area-privada" className="underline underline-offset-2 hover:text-primary">
+                política de privacidad
+              </Link>.
+            </p>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={busy} className="rounded-full">Guardar y entrar</Button>
           </form>
