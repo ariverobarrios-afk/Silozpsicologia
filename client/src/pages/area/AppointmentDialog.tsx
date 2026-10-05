@@ -97,6 +97,12 @@ export function AppointmentDialog({
     [appointments, patientId, appointment]
   );
 
+  // La primera sesión de un paciente se cobra siempre como tal: nunca con bono.
+  // (Una cita que ya estaba guardada con bono se respeta para no dejarla sin tarifa.)
+  const bonoBlocked =
+    appointment?.session_type !== "bono" &&
+    (isFirst || sessionType === "primera" || appointment?.session_type === "primera");
+
   // Solo puede haber una primera sesión (no cancelada) por paciente.
   const hasOtherFirst = useMemo(
     () =>
@@ -366,7 +372,7 @@ export function AppointmentDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="time">Hora</Label>
-              <Select value={time} onValueChange={setTime}>
+              <Select value={time} onValueChange={(v) => v && setTime(v)}>
                 <SelectTrigger id="time" className="w-full"><SelectValue placeholder="Elige una hora" /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   {TIME_SLOTS.map((t) => (
@@ -391,7 +397,9 @@ export function AppointmentDialog({
             <Label htmlFor="tarifa">Tarifa</Label>
             {/* key: al aparecer la opción de bono (p. ej. tras venderlo aquí) el
                 desplegable se monta de nuevo; si no, pierde el valor elegido. */}
-            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}`} value={sessionType} onValueChange={(v) => {
+            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}-${bonoBlocked}`} value={sessionType} onValueChange={(v) => {
+              // Radix Select a veces emite "" al cambiar sus opciones: se ignora.
+              if (!v) return;
               setSessionType(v as SessionType);
               if (v === "bono" && !bonoId && usableBonos[0]) setBonoId(usableBonos[0].id);
             }}>
@@ -411,12 +419,17 @@ export function AppointmentDialog({
                     {SESSION_TYPES[appointment.session_type].label} · {euros(appointment.price_cents)}
                   </SelectItem>
                 )}
-                {usableBonos.length > 0 && (
+                {usableBonos.length > 0 && !bonoBlocked && (
                   <SelectItem value="bono">Descontar de un bono</SelectItem>
                 )}
               </SelectContent>
             </Select>
-            {patientId && usableBonos.length === 0 && !sellingBono && (
+            {patientId && bonoBlocked && (
+              <p className="text-xs text-muted-foreground">
+                La primera sesión no se puede pagar con bono.
+              </p>
+            )}
+            {patientId && usableBonos.length === 0 && !sellingBono && !bonoBlocked && (
               <Button type="button" variant="outline" size="sm" className="self-start"
                 onClick={() => setSellingBono(true)}>
                 <Ticket className="size-4" />
@@ -450,7 +463,7 @@ export function AppointmentDialog({
           {sessionType === "bono" ? (
             <div className="flex flex-col gap-2">
               <Label>Bono</Label>
-              <Select key={usableBonos.map((b) => b.id).join()} value={bonoId} onValueChange={setBonoId}>
+              <Select key={usableBonos.map((b) => b.id).join()} value={bonoId} onValueChange={(v) => v && setBonoId(v)}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Elige el bono" /></SelectTrigger>
                 <SelectContent>
                   {usableBonos.map((b) => (
