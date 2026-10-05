@@ -41,6 +41,18 @@ create table if not exists public.appointments (
 -- algún día cambia).
 alter table public.appointments alter column modality set default 'online';
 
+-- Las sesiones solo empiezan en punto o a y media (España tiene desfases de
+-- horas enteras, así que los minutos en UTC son los mismos que en local).
+-- NOT VALID: no se revisan citas ya existentes, pero sí toda cita nueva o editada.
+do $do$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'appointments_half_hour') then
+    alter table public.appointments add constraint appointments_half_hour
+      check (extract(minute from starts_at) in (0, 30) and extract(second from starts_at) = 0) not valid;
+  end if;
+end
+$do$;
+
 create index if not exists appointments_patient_starts_idx
   on public.appointments (patient_id, starts_at desc);
 create index if not exists appointments_starts_idx

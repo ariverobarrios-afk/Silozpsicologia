@@ -40,6 +40,12 @@ import { formatDay, formatTime, fromInputs, toTimeInput } from "./format";
 
 const ALL = "todos";
 
+// Las sesiones solo empiezan en punto o a y media.
+const TIME_SLOTS = Array.from({ length: 32 }, (_, i) => {
+  const minutes = 7 * 60 + i * 30; // 07:00 … 22:30
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${minutes % 60 === 0 ? "00" : "30"}`;
+});
+
 function PanelTerapeuta() {
   const [patients, setPatients] = useState<Profile[] | null>(null);
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
@@ -298,7 +304,9 @@ function AppointmentDialog({
     appointment ? new Date(appointment.starts_at) : defaultDate
   );
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [time, setTime] = useState(appointment ? toTimeInput(appointment.starts_at) : defaultTime ?? "");
+  const initialTime = appointment ? toTimeInput(appointment.starts_at) : defaultTime ?? "";
+  // Una cita antigua a una hora fuera de franja obliga a elegir una válida.
+  const [time, setTime] = useState(TIME_SLOTS.includes(initialTime) ? initialTime : "");
   const [duration, setDuration] = useState(String(appointment?.duration_minutes ?? 50));
   const [status, setStatus] = useState<AppointmentStatus>(appointment?.status ?? "programada");
   const [busy, setBusy] = useState(false);
@@ -397,8 +405,19 @@ function AppointmentDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="time">Hora</Label>
-              <Input id="time" type="time" required step={300} value={time}
-                onChange={(e) => setTime(e.target.value)} />
+              <Select value={time} onValueChange={setTime}>
+                <SelectTrigger id="time" className="w-full"><SelectValue placeholder="Elige una hora" /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  {TIME_SLOTS.map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {initialTime && !TIME_SLOTS.includes(initialTime) && (
+                <p className="text-xs text-muted-foreground">
+                  Estaba a las {initialTime}; elige una hora en punto o y media.
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="duration">Duración (min)</Label>
