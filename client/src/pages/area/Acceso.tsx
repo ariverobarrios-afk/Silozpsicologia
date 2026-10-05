@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Redirect } from "wouter";
+import { Link, Redirect } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,10 @@ export default function Acceso() {
               className="text-sm text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
               {mode === "login" ? "¿Has olvidado tu contraseña?" : "Volver a iniciar sesión"}
             </button>
+            <Link href="/aviso-legal#area-privada"
+              className="text-center text-xs text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
+              Privacidad del área privada
+            </Link>
           </form>
         </CardContent>
       </Card>
