@@ -1,0 +1,58 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+// Claves PÚBLICAS de Supabase (pensadas para el navegador; la seguridad real
+// la ponen las políticas RLS de supabase/schema.sql). Se aceptan con prefijo
+// VITE_ o con el NEXT_PUBLIC_ que crea la integración Supabase ↔ Vercel.
+const env = import.meta.env;
+const url: string | undefined =
+  env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+const anonKey: string | undefined =
+  env.VITE_SUPABASE_ANON_KEY ||
+  env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+export const supabaseConfigured = Boolean(url && anonKey);
+
+// Si faltan las claves, el resto de la web sigue funcionando y el área privada
+// muestra un aviso en lugar de romper.
+export const supabase: SupabaseClient | null = supabaseConfigured
+  ? createClient(url!, anonKey!, {
+      // "implicit": los enlaces de invitación que genera el servidor no admiten PKCE.
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" },
+    })
+  : null;
+
+export type Role = "admin" | "patient";
+
+export interface Profile {
+  id: string;
+  role: Role;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export type Modality = "presencial" | "online";
+export type AppointmentStatus = "programada" | "realizada" | "cancelada";
+
+export interface Appointment {
+  id: string;
+  patient_id: string;
+  starts_at: string;
+  duration_minutes: number;
+  modality: Modality;
+  status: AppointmentStatus;
+}
+
+export const STATUS_LABEL: Record<AppointmentStatus, string> = {
+  programada: "Programada",
+  realizada: "Realizada",
+  cancelada: "Cancelada",
+};
+
+export const MODALITY_LABEL: Record<Modality, string> = {
+  presencial: "Presencial",
+  online: "Online",
+};
