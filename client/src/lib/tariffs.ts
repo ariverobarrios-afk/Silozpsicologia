@@ -34,3 +34,43 @@ export function bonoRemaining(bono: Bono, appointments: Appointment[]): number {
 export function isPendingPayment(a: Appointment): boolean {
   return a.session_type !== "bono" && a.status !== "cancelada" && a.price_cents > 0 && !a.paid_at;
 }
+
+export interface DebtItem {
+  kind: "bono" | "cita";
+  id: string;
+  cents: number;
+  date: string; // venta del bono o fecha de la cita
+}
+
+// Lo que un paciente debe ya: bonos sin pagar y sesiones pasadas sin cobrar.
+export function overdueDebts(
+  patientId: string,
+  appointments: Appointment[],
+  bonos: Bono[],
+  now = new Date()
+): DebtItem[] {
+  return [
+    ...bonos
+      .filter((b) => b.patient_id === patientId && !b.paid_at)
+      .map((b) => ({ kind: "bono" as const, id: b.id, cents: b.price_cents, date: b.created_at })),
+    ...appointments
+      .filter((a) => a.patient_id === patientId && isPendingPayment(a) && new Date(a.starts_at) <= now)
+      .map((a) => ({ kind: "cita" as const, id: a.id, cents: a.price_cents, date: a.starts_at })),
+  ];
+}
+
+// Motivo por el que una cita debe verse en rojo (null si está todo en orden).
+export function paymentAlert(
+  a: Appointment,
+  appointments: Appointment[],
+  bonos: Bono[],
+  now = new Date()
+): string | null {
+  if (a.status === "cancelada") return null;
+  if (isPendingPayment(a)) return "Sesión pendiente de pago";
+  if (a.bono_id && bonos.some((b) => b.id === a.bono_id && !b.paid_at)) return "Bono pendiente de pago";
+  if (a.status === "programada" && overdueDebts(a.patient_id, appointments, bonos, now).length > 0) {
+    return "El paciente tiene pagos pendientes";
+  }
+  return null;
+}

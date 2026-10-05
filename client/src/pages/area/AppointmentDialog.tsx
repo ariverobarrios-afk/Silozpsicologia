@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarIcon, Sparkles } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Sparkles, Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -34,7 +34,7 @@ import {
   type Profile,
   type SessionType,
 } from "@/lib/supabase";
-import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, euros } from "@/lib/tariffs";
+import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, euros, overdueDebts } from "@/lib/tariffs";
 import { fromInputs, toTimeInput } from "./format";
 
 // Las sesiones solo empiezan en punto o a y media.
@@ -53,6 +53,7 @@ export function AppointmentDialog({
   defaultTime,
   onClose,
   onSaved,
+  onRefresh,
 }: {
   patients: Profile[];
   appointments: Appointment[];
@@ -63,6 +64,7 @@ export function AppointmentDialog({
   defaultTime?: string;
   onClose: () => void;
   onSaved: () => void;
+  onRefresh: () => Promise<void>; // recargar datos sin cerrar el diálogo
 }) {
   const [patientId, setPatientId] = useState(appointment?.patient_id ?? defaultPatientId ?? "");
   const [date, setDate] = useState<Date | undefined>(
@@ -79,6 +81,8 @@ export function AppointmentDialog({
   const [paid, setPaid] = useState(Boolean(appointment?.paid_at));
   const [processType, setProcessType] = useState<ProcessType | "">("");
   const [busy, setBusy] = useState(false);
+  const [sellingBono, setSellingBono] = useState(false);
+  const [bonoPaidNow, setBonoPaidNow] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const patient = patients.find((p) => p.id === patientId);
@@ -118,6 +122,47 @@ export function AppointmentDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
+
+  // Lo que el paciente ya debe (sin contar esta cita, que tiene su propio interruptor).
+  const debts = patientId
+    ? overdueDebts(patientId, appointments, bonos).filter((d) => d.id !== appointment?.id)
+    : [];
+
+  const markDebtPaid = async (kind: "bono" | "cita", id: string) => {
+    const table = kind === "bono" ? "bonos" : "appointments";
+    const { error } = await supabase!.from(table).update({ paid_at: new Date().toISOString() }).eq("id", id);
+    if (error) toast.error("No se pudo marcar como pagado.");
+    else {
+      toast.success(kind === "bono" ? "Bono marcado como pagado." : "Sesión marcada como pagada.");
+      await onRefresh();
+    }
+  };
+
+  // Vender un bono al paciente y descontar de él esta misma cita.
+  const sellBono = async () => {
+    setBusy(true);
+    const { data, error } = await supabase!
+      .from("bonos")
+      .insert({
+        patient_id: patientId,
+        sessions_total: BONO.sessions,
+        price_cents: BONO.price_cents,
+        paid_at: bonoPaidNow ? new Date().toISOString() : null,
+      })
+      .select()
+      .single();
+    if (error || !data) {
+      setBusy(false);
+      toast.error("No se pudo registrar el bono.");
+      return;
+    }
+    await onRefresh();
+    setBusy(false);
+    setSellingBono(false);
+    setSessionType("bono");
+    setBonoId((data as Bono).id);
+    toast.success("Bono registrado. Esta cita se descontará de él al guardar.");
+  };
 
   const needsProcess = Boolean(patient) && !patient?.process_type;
 
@@ -218,6 +263,30 @@ export function AppointmentDialog({
           </div>
         )}
 
+        {debts.length > 0 && (
+          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-3 text-sm">
+            <p className="mb-2 flex items-center gap-2 font-semibold text-destructive">
+              <AlertTriangle className="size-4" />
+              Pagos pendientes · {euros(debts.reduce((sum, d) => sum + d.cents, 0))}
+            </p>
+            <ul className="flex flex-col gap-1.5">
+              {debts.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-2">
+                  <span className="text-foreground">
+                    {d.kind === "bono"
+                      ? `${BONO.label} (${format(new Date(d.date), "d/M/yyyy")})`
+                      : `Sesión del ${format(new Date(d.date), "d/M/yyyy")}`} · {euros(d.cents)}
+                  </span>
+                  <Button type="button" size="sm" variant="outline" className="h-7"
+                    disabled={busy} onClick={() => markDebtPaid(d.kind, d.id)}>
+                    Marcar pagado
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label>Paciente</Label>
@@ -303,7 +372,9 @@ export function AppointmentDialog({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="tarifa">Tarifa</Label>
-            <Select value={sessionType} onValueChange={(v) => {
+            {/* key: al aparecer la opción de bono (p. ej. tras venderlo aquí) el
+                desplegable se monta de nuevo; si no, pierde el valor elegido. */}
+            <Select key={usableBonos.length > 0 ? "con-bono" : "sin-bono"} value={sessionType} onValueChange={(v) => {
               setSessionType(v as SessionType);
               if (v === "bono" && !bonoId && usableBonos[0]) setBonoId(usableBonos[0].id);
             }}>
@@ -326,17 +397,41 @@ export function AppointmentDialog({
                 )}
               </SelectContent>
             </Select>
-            {patientId && usableBonos.length === 0 && sessionType !== "primera" && (
-              <p className="text-xs text-muted-foreground">
-                Sin bono activo. Puedes venderle un {BONO.label.toLowerCase()} desde «Pagos».
-              </p>
+            {patientId && usableBonos.length === 0 && !sellingBono && (
+              <Button type="button" variant="outline" size="sm" className="self-start"
+                onClick={() => setSellingBono(true)}>
+                <Ticket className="size-4" />
+                Vender {BONO.label.toLowerCase()} ({euros(BONO.price_cents)}) y usarlo en esta cita
+              </Button>
+            )}
+            {sellingBono && (
+              <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                <p className="text-sm text-foreground">
+                  {BONO.label} por {euros(BONO.price_cents)} para {patient?.full_name || patient?.email}.
+                  Esta cita se descontará del bono.
+                </p>
+                {appointment?.paid_at && appointment.session_type !== "bono" && (
+                  <p className="text-sm font-medium text-destructive">
+                    Esta cita ya estaba cobrada ({euros(appointment.price_cents)}). Al pasarla al bono
+                    dejará de contar como cobrada.
+                  </p>
+                )}
+                <label className="flex items-center justify-between text-sm">
+                  Ya está pagado
+                  <Switch checked={bonoPaidNow} onCheckedChange={setBonoPaidNow} />
+                </label>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setSellingBono(false)}>Cancelar</Button>
+                  <Button type="button" size="sm" disabled={busy} onClick={sellBono}>Registrar bono</Button>
+                </div>
+              </div>
             )}
           </div>
 
           {sessionType === "bono" ? (
             <div className="flex flex-col gap-2">
               <Label>Bono</Label>
-              <Select value={bonoId} onValueChange={setBonoId}>
+              <Select key={usableBonos.map((b) => b.id).join()} value={bonoId} onValueChange={setBonoId}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Elige el bono" /></SelectTrigger>
                 <SelectContent>
                   {usableBonos.map((b) => (

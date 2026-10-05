@@ -36,17 +36,20 @@ export function AppointmentItem({
   appointment,
   title,
   actions,
+  alert,
 }: {
   appointment: Appointment;
   title?: string;
   actions?: ReactNode;
+  alert?: string | null; // motivo para marcarla en rojo (pagos pendientes)
 }) {
   const a = appointment;
   return (
     <li
       className={cn(
         "flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between",
-        a.status === "cancelada" && "opacity-70"
+        a.status === "cancelada" && "opacity-70",
+        alert && "border-destructive/60 bg-destructive/10"
       )}
     >
       <div className="min-w-0">
@@ -58,6 +61,7 @@ export function AppointmentItem({
           {formatTime(a.starts_at)} · {a.duration_minutes} min · {MODALITY_LABEL[a.modality]}
           {a.session_type !== "primera" && ` · ${SESSION_TYPES[a.session_type].label}`}
         </p>
+        {alert && <p className="mt-1 text-sm font-medium text-destructive">{alert}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {a.session_type === "primera" && (

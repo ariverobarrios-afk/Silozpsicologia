@@ -26,6 +26,8 @@ const BLOCK_CLASS: Record<Appointment["status"], string> = {
 };
 // Las primeras sesiones destacan en un tono cálido para verlas de un vistazo.
 const FIRST_BLOCK_CLASS = "border-amber-500 bg-amber-100 text-amber-950 hover:bg-amber-200";
+// Pagos pendientes: en rojo, por encima de cualquier otro color.
+const ALERT_BLOCK_CLASS = "border-destructive bg-destructive/15 text-foreground ring-1 ring-destructive/40 hover:bg-destructive/25";
 
 function minutesOfDay(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
@@ -66,11 +68,13 @@ export function WeekCalendar({
   patientName,
   onSelect,
   onCreate,
+  alertFor,
 }: {
   appointments: Appointment[];
   patientName: (id: string) => string;
   onSelect: (a: Appointment) => void;
   onCreate: (date: Date, time: string) => void;
+  alertFor?: (a: Appointment) => string | null;
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [now, setNow] = useState(() => new Date());
@@ -201,6 +205,7 @@ export function WeekCalendar({
                     const height = Math.max((a.duration_minutes / 60) * HOUR_PX - 2, 22);
                     const isFirst = a.session_type === "primera" && a.status !== "cancelada";
                     const unpaid = isPendingPayment(a) && start.getTime() < now.getTime();
+                    const alert = alertFor?.(a) ?? null;
                     return (
                       <button
                         key={a.id}
@@ -211,7 +216,7 @@ export function WeekCalendar({
                         }}
                         className={cn(
                           "absolute z-10 overflow-hidden rounded-[6px] border-l-4 px-1.5 py-1 text-left text-xs leading-tight shadow-sm transition-colors",
-                          isFirst ? FIRST_BLOCK_CLASS : BLOCK_CLASS[a.status]
+                          alert ? ALERT_BLOCK_CLASS : isFirst ? FIRST_BLOCK_CLASS : BLOCK_CLASS[a.status]
                         )}
                         style={{
                           top: top + 1,
@@ -224,11 +229,14 @@ export function WeekCalendar({
                           format(start, "HH:mm"),
                           `${a.duration_minutes} min`,
                           isFirst && "Primera sesión",
-                          unpaid && "Pendiente de pago",
+                          alert ?? (unpaid && "Pendiente de pago"),
                         ].filter(Boolean).join(" · ")}
                       >
-                        {unpaid && (
-                          <span className="absolute right-1 top-1 rounded-sm bg-amber-500 px-1 text-[10px] font-semibold leading-4 text-white"
+                        {(unpaid || alert) && (
+                          <span className={cn(
+                            "absolute right-1 top-1 rounded-sm px-1 text-[10px] font-semibold leading-4 text-white",
+                            alert ? "bg-destructive" : "bg-amber-500"
+                          )}
                             aria-label="Pendiente de pago">€</span>
                         )}
                         {isFirst && (

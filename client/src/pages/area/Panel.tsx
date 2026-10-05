@@ -24,7 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
-import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment } from "@/lib/tariffs";
+import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { AppointmentDialog } from "./AppointmentDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
@@ -102,6 +102,8 @@ function PanelTerapeuta() {
     else reload();
   };
 
+  const alertFor = (a: Appointment) => paymentAlert(a, appointments ?? [], bonos ?? []);
+
   if (!patients || !appointments || !bonos) {
     return (
       <AreaLayout title="Panel de consulta">
@@ -169,6 +171,7 @@ function PanelTerapeuta() {
               appointments={visible}
               patientName={patientName}
               onSelect={(a) => setEditing(a)}
+              alertFor={alertFor}
               onCreate={(date, time) => {
                 if (patients.length > 0) openNew(filter === ALL ? undefined : filter, date, time);
               }}
@@ -182,7 +185,7 @@ function PanelTerapeuta() {
                 ) : (
                   <ul className="flex flex-col gap-3">
                     {upcoming.map((a) => (
-                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)}
                         actions={editButton(a)} />
                     ))}
                   </ul>
@@ -195,7 +198,7 @@ function PanelTerapeuta() {
                 ) : (
                   <ul className="flex flex-col gap-3">
                     {past.map((a) => (
-                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)}
                         actions={
                           <>
                             {a.status === "programada" && (
@@ -314,6 +317,7 @@ function PanelTerapeuta() {
           appointment={editing === "new" ? null : editing}
           appointments={appointments}
           bonos={bonos}
+          onRefresh={reload}
           defaultPatientId={newDefaults.patientId}
           defaultDate={newDefaults.date}
           defaultTime={newDefaults.time}
