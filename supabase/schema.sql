@@ -59,7 +59,7 @@ as $$
   );
 $$;
 
-revoke all on function public.is_admin() from public;
+revoke all on function public.is_admin() from public, anon;
 grant execute on function public.is_admin() to authenticated;
 
 -- ¿La cuenta del usuario actual está activa? (Silvia puede desactivar el
@@ -77,7 +77,7 @@ as $$
   );
 $$;
 
-revoke all on function public.is_active() from public;
+revoke all on function public.is_active() from public, anon;
 grant execute on function public.is_active() to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +104,9 @@ begin
 end;
 $$;
 
+-- Solo la invoca el trigger; nadie debe poder llamarla por la API.
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -113,6 +116,7 @@ create trigger on_auth_user_created
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -180,6 +184,7 @@ create policy "citas: admin borra"
 create or replace function public.protect_own_role()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   if new.role is distinct from old.role and old.id = auth.uid() then
