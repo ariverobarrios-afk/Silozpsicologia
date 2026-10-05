@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarIcon, CalendarPlus, Pencil, UserPlus } from "lucide-react";
+import { CalendarDays, CalendarIcon, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ import {
   type Profile,
 } from "@/lib/supabase";
 import { AppointmentItem } from "./AppointmentItem";
+import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime, fromInputs, toTimeInput } from "./format";
 
@@ -45,7 +46,8 @@ function PanelTerapeuta() {
   const [tab, setTab] = useState("agenda");
   const [filter, setFilter] = useState<string>(ALL);
   const [editing, setEditing] = useState<Appointment | "new" | null>(null);
-  const [newForPatient, setNewForPatient] = useState<string | undefined>();
+  const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
+  const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -91,8 +93,8 @@ function PanelTerapeuta() {
     }
   };
 
-  const openNew = (patientId?: string) => {
-    setNewForPatient(patientId);
+  const openNew = (patientId?: string, date?: Date, time?: string) => {
+    setNewDefaults({ patientId, date, time });
     setEditing("new");
   };
 
@@ -131,11 +133,25 @@ function PanelTerapeuta() {
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={() => openNew(filter === ALL ? undefined : filter)} disabled={patients.length === 0}
-              className="rounded-full">
-              <CalendarPlus className="size-4" />
-              Nueva cita
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-full border border-border bg-secondary p-1" role="group" aria-label="Vista">
+                <Button variant={view === "calendario" ? "default" : "ghost"} size="sm" className="rounded-full"
+                  aria-pressed={view === "calendario"} onClick={() => setView("calendario")}>
+                  <CalendarDays className="size-4" />
+                  Calendario
+                </Button>
+                <Button variant={view === "lista" ? "default" : "ghost"} size="sm" className="rounded-full"
+                  aria-pressed={view === "lista"} onClick={() => setView("lista")}>
+                  <List className="size-4" />
+                  Lista
+                </Button>
+              </div>
+              <Button onClick={() => openNew(filter === ALL ? undefined : filter)} disabled={patients.length === 0}
+                className="rounded-full">
+                <CalendarPlus className="size-4" />
+                Nueva cita
+              </Button>
+            </div>
           </div>
           {patients.length === 0 && (
             <p className="mb-6 text-muted-foreground">
@@ -143,43 +159,54 @@ function PanelTerapeuta() {
             </p>
           )}
 
-          <div className="grid gap-10 lg:grid-cols-2">
-            <section>
-              <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Próximas</h2>
-              {upcoming.length === 0 ? (
-                <p className="text-muted-foreground">No hay citas próximas.</p>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {upcoming.map((a) => (
-                    <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
-                      actions={editButton(a)} />
-                  ))}
-                </ul>
-              )}
-            </section>
-            <section>
-              <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Anteriores</h2>
-              {past.length === 0 ? (
-                <p className="text-muted-foreground">No hay citas anteriores.</p>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {past.map((a) => (
-                    <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
-                      actions={
-                        <>
-                          {a.status === "programada" && (
-                            <Button variant="outline" size="sm" onClick={() => markDone(a)}>
-                              Marcar realizada
-                            </Button>
-                          )}
-                          {editButton(a)}
-                        </>
-                      } />
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
+          {view === "calendario" ? (
+            <WeekCalendar
+              appointments={visible}
+              patientName={patientName}
+              onSelect={(a) => setEditing(a)}
+              onCreate={(date, time) => {
+                if (patients.length > 0) openNew(filter === ALL ? undefined : filter, date, time);
+              }}
+            />
+          ) : (
+            <div className="grid gap-10 lg:grid-cols-2">
+              <section>
+                <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Próximas</h2>
+                {upcoming.length === 0 ? (
+                  <p className="text-muted-foreground">No hay citas próximas.</p>
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {upcoming.map((a) => (
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
+                        actions={editButton(a)} />
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <section>
+                <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Anteriores</h2>
+                {past.length === 0 ? (
+                  <p className="text-muted-foreground">No hay citas anteriores.</p>
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {past.map((a) => (
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)}
+                        actions={
+                          <>
+                            {a.status === "programada" && (
+                              <Button variant="outline" size="sm" onClick={() => markDone(a)}>
+                                Marcar realizada
+                              </Button>
+                            )}
+                            {editButton(a)}
+                          </>
+                        } />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="pacientes">
@@ -237,7 +264,9 @@ function PanelTerapeuta() {
         <AppointmentDialog
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
-          defaultPatientId={newForPatient}
+          defaultPatientId={newDefaults.patientId}
+          defaultDate={newDefaults.date}
+          defaultTime={newDefaults.time}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload(); }}
         />
@@ -251,21 +280,25 @@ function AppointmentDialog({
   patients,
   appointment,
   defaultPatientId,
+  defaultDate,
+  defaultTime,
   onClose,
   onSaved,
 }: {
   patients: Profile[];
   appointment: Appointment | null;
   defaultPatientId?: string;
+  defaultDate?: Date;
+  defaultTime?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [patientId, setPatientId] = useState(appointment?.patient_id ?? defaultPatientId ?? "");
   const [date, setDate] = useState<Date | undefined>(
-    appointment ? new Date(appointment.starts_at) : undefined
+    appointment ? new Date(appointment.starts_at) : defaultDate
   );
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [time, setTime] = useState(appointment ? toTimeInput(appointment.starts_at) : "");
+  const [time, setTime] = useState(appointment ? toTimeInput(appointment.starts_at) : defaultTime ?? "");
   const [duration, setDuration] = useState(String(appointment?.duration_minutes ?? 50));
   const [status, setStatus] = useState<AppointmentStatus>(appointment?.status ?? "programada");
   const [busy, setBusy] = useState(false);
