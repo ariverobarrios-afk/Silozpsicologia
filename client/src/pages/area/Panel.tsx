@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarPlus, Pencil, UserPlus } from "lucide-react";
+import { CalendarIcon, CalendarPlus, Pencil, UserPlus } from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -23,17 +27,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  MODALITY_LABEL,
   STATUS_LABEL,
   supabase,
   type Appointment,
   type AppointmentStatus,
-  type Modality,
   type Profile,
 } from "@/lib/supabase";
 import { AppointmentItem } from "./AppointmentItem";
 import { AreaLayout, RequireRole } from "./AreaLayout";
-import { formatDay, formatTime, fromInputs, toDateInput, toTimeInput } from "./format";
+import { formatDay, formatTime, fromInputs, toTimeInput } from "./format";
 
 const ALL = "todos";
 
@@ -259,10 +261,12 @@ function AppointmentDialog({
   onSaved: () => void;
 }) {
   const [patientId, setPatientId] = useState(appointment?.patient_id ?? defaultPatientId ?? "");
-  const [date, setDate] = useState(appointment ? toDateInput(appointment.starts_at) : "");
+  const [date, setDate] = useState<Date | undefined>(
+    appointment ? new Date(appointment.starts_at) : undefined
+  );
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [time, setTime] = useState(appointment ? toTimeInput(appointment.starts_at) : "");
   const [duration, setDuration] = useState(String(appointment?.duration_minutes ?? 50));
-  const [modality, setModality] = useState<Modality>(appointment?.modality ?? "presencial");
   const [status, setStatus] = useState<AppointmentStatus>(appointment?.status ?? "programada");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -275,9 +279,10 @@ function AppointmentDialog({
     }
     const row = {
       patient_id: patientId,
-      starts_at: fromInputs(date, time),
+      starts_at: fromInputs(format(date, "yyyy-MM-dd"), time),
       duration_minutes: Number(duration) || 50,
-      modality,
+      // La consulta es solo online.
+      modality: "online" as const,
       status,
     };
     setBusy(true);
@@ -325,32 +330,47 @@ function AppointmentDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="date">Fecha</Label>
-              <Input id="date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="time">Hora</Label>
-              <Input id="time" type="time" required value={time} onChange={(e) => setTime(e.target.value)} />
-            </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="date">Fecha</Label>
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button id="date" type="button" variant="outline"
+                  className="w-full justify-start rounded-md font-normal">
+                  <CalendarIcon className="size-4 text-muted-foreground" />
+                  {date ? (
+                    <span className="first-letter:uppercase">
+                      {format(date, "EEEE d 'de' MMMM yyyy", { locale: es })}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Elige una fecha</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  locale={es}
+                  weekStartsOn={1}
+                  selected={date}
+                  defaultMonth={date}
+                  onSelect={(d) => {
+                    setDate(d);
+                    setCalendarOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="time">Hora</Label>
+              <Input id="time" type="time" required step={300} value={time}
+                onChange={(e) => setTime(e.target.value)} />
+            </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="duration">Duración (min)</Label>
               <Input id="duration" type="number" min={5} max={480} step={5} value={duration}
                 onChange={(e) => setDuration(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Modalidad</Label>
-              <Select value={modality} onValueChange={(v) => setModality(v as Modality)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(MODALITY_LABEL) as Modality[]).map((m) => (
-                    <SelectItem key={m} value={m}>{MODALITY_LABEL[m]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
           <div className="flex flex-col gap-2">

@@ -30,12 +30,16 @@ create table if not exists public.appointments (
   patient_id        uuid not null references public.profiles (id) on delete cascade,
   starts_at         timestamptz not null,
   duration_minutes  integer not null default 50 check (duration_minutes between 5 and 480),
-  modality          text not null default 'presencial' check (modality in ('presencial', 'online')),
+  modality          text not null default 'online' check (modality in ('presencial', 'online')),
   status            text not null default 'programada'
                     check (status in ('programada', 'realizada', 'cancelada')),
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
+
+-- La consulta es solo online (se mantiene 'presencial' como valor válido por si
+-- algún día cambia).
+alter table public.appointments alter column modality set default 'online';
 
 create index if not exists appointments_patient_starts_idx
   on public.appointments (patient_id, starts_at desc);

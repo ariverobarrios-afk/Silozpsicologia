@@ -15,11 +15,7 @@ export function formatTime(iso: string): string {
   return format(new Date(iso), "HH:mm");
 }
 
-// Valores para <input type="date"> y <input type="time"> en hora local.
-export function toDateInput(iso: string): string {
-  return format(new Date(iso), "yyyy-MM-dd");
-}
-
+// Valor para <input type="time"> en hora local.
 export function toTimeInput(iso: string): string {
   return format(new Date(iso), "HH:mm");
 }
