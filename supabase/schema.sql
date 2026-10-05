@@ -279,6 +279,11 @@ create policy "bonos: admin borra"
   to authenticated
   using (public.is_admin());
 
+-- Solo una primera sesión (no cancelada) por paciente.
+create unique index if not exists appointments_una_primera_por_paciente
+  on public.appointments (patient_id)
+  where session_type = 'primera' and status <> 'cancelada';
+
 -- Un bono solo vale para su paciente y no admite más citas (no canceladas)
 -- que sesiones tiene.
 create or replace function public.check_bono_usage()

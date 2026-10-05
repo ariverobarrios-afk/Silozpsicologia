@@ -97,6 +97,19 @@ export function AppointmentDialog({
     [appointments, patientId, appointment]
   );
 
+  // Solo puede haber una primera sesión (no cancelada) por paciente.
+  const hasOtherFirst = useMemo(
+    () =>
+      appointments.some(
+        (a) =>
+          a.patient_id === patientId &&
+          a.session_type === "primera" &&
+          a.status !== "cancelada" &&
+          a.id !== appointment?.id
+      ),
+    [appointments, patientId, appointment]
+  );
+
   // Bonos del paciente con sesiones libres (más el de esta cita, si ya usa uno).
   const usableBonos = useMemo(
     () =>
@@ -225,7 +238,11 @@ export function AppointmentDialog({
       : await supabase!.from("appointments").insert(row);
     setBusy(false);
     if (error) {
-      toast.error(/bono/i.test(error.message) ? error.message : "No se pudo guardar la cita.");
+      toast.error(
+        /una_primera/.test(error.message) ? "Este paciente ya tiene una primera sesión."
+        : /bono/i.test(error.message) ? error.message
+        : "No se pudo guardar la cita."
+      );
       return;
     }
     toast.success(appointment ? "Cita actualizada." : "Cita creada.");
@@ -374,15 +391,17 @@ export function AppointmentDialog({
             <Label htmlFor="tarifa">Tarifa</Label>
             {/* key: al aparecer la opción de bono (p. ej. tras venderlo aquí) el
                 desplegable se monta de nuevo; si no, pierde el valor elegido. */}
-            <Select key={usableBonos.length > 0 ? "con-bono" : "sin-bono"} value={sessionType} onValueChange={(v) => {
+            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}`} value={sessionType} onValueChange={(v) => {
               setSessionType(v as SessionType);
               if (v === "bono" && !bonoId && usableBonos[0]) setBonoId(usableBonos[0].id);
             }}>
               <SelectTrigger id="tarifa" className="w-full"><SelectValue placeholder="Elige la tarifa" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="primera">
-                  {SESSION_TYPES.primera.label} · {euros(SESSION_TYPES.primera.price_cents)}
-                </SelectItem>
+                {!hasOtherFirst && (
+                  <SelectItem value="primera">
+                    {SESSION_TYPES.primera.label} · {euros(SESSION_TYPES.primera.price_cents)}
+                  </SelectItem>
+                )}
                 <SelectItem value={regularType}>
                   {SESSION_TYPES[regularType].label} · {euros(SESSION_TYPES[regularType].price_cents)}
                 </SelectItem>
