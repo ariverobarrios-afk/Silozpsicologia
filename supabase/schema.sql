@@ -320,6 +320,28 @@ create trigger appointments_check_bono
   for each row execute function public.check_bono_usage();
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Días reservados a Psicolink (el otro gabinete). Por defecto miércoles y
+-- viernes (regla en client/src/lib/psicolink.ts); aquí solo se guardan los
+-- cambios puntuales. Solo los ve y cambia la terapeuta.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.agenda_days (
+  day         date primary key,
+  psicolink   boolean not null,
+  updated_at  timestamptz not null default now()
+);
+alter table public.agenda_days enable row level security;
+
+drop policy if exists "agenda_days: admin lee" on public.agenda_days;
+create policy "agenda_days: admin lee"
+  on public.agenda_days for select to authenticated using (public.is_admin());
+drop policy if exists "agenda_days: admin crea" on public.agenda_days;
+create policy "agenda_days: admin crea"
+  on public.agenda_days for insert to authenticated with check (public.is_admin());
+drop policy if exists "agenda_days: admin modifica" on public.agenda_days;
+create policy "agenda_days: admin modifica"
+  on public.agenda_days for update to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

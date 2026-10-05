@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
+import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
@@ -44,6 +45,8 @@ function PanelTerapeuta() {
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [bonos, setBonos] = useState<Bono[] | null>(null);
+  // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
+  const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
 
   const reload = useCallback(async () => {
@@ -60,7 +63,23 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
+    const { data: days } = await supabase.from("agenda_days").select("day, psicolink");
+    setPsicolinkDays(new Map(((days as AgendaDay[] | null) ?? []).map((d) => [d.day, d.psicolink])));
   }, []);
+
+  const togglePsicolink = async (day: Date) => {
+    const key = dayKey(day);
+    const next = !isPsicolinkDay(day, psicolinkDays);
+    const previous = new Map(psicolinkDays);
+    setPsicolinkDays(new Map(psicolinkDays).set(key, next)); // se ve al instante
+    const { error } = await supabase!
+      .from("agenda_days")
+      .upsert({ day: key, psicolink: next, updated_at: new Date().toISOString() });
+    if (error) {
+      setPsicolinkDays(previous);
+      toast.error("No se pudo guardar el día de Psicolink.");
+    }
+  };
 
   useEffect(() => {
     reload();
@@ -172,6 +191,8 @@ function PanelTerapeuta() {
               patientName={patientName}
               onSelect={(a) => setEditing(a)}
               alertFor={alertFor}
+              isPsicolink={(d) => isPsicolinkDay(d, psicolinkDays)}
+              onTogglePsicolink={togglePsicolink}
               onCreate={(date, time) => {
                 if (patients.length > 0) openNew(filter === ALL ? undefined : filter, date, time);
               }}

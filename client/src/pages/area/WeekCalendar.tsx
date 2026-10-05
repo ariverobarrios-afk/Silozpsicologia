@@ -20,12 +20,15 @@ const DEFAULT_START = 8; // franja visible por defecto: 8:00–21:00
 const DEFAULT_END = 21;
 
 const BLOCK_CLASS: Record<Appointment["status"], string> = {
-  programada: "border-primary bg-primary/20 text-foreground hover:bg-primary/30",
+  programada: "border-primary bg-[oklch(0.95_0.04_155)] text-foreground hover:bg-[oklch(0.91_0.055_155)]",
   realizada: "border-muted-foreground/40 bg-muted text-muted-foreground hover:bg-muted/80",
   cancelada: "border-destructive/50 bg-destructive/10 text-muted-foreground line-through hover:bg-destructive/15",
 };
 // Las primeras sesiones destacan en un tono cálido para verlas de un vistazo.
 const FIRST_BLOCK_CLASS = "border-amber-500 bg-amber-100 text-amber-950 hover:bg-amber-200";
+// Días de Psicolink: la columna entera en azul suave para que destaque.
+const PSICOLINK_COLUMN_CLASS = "bg-sky-100/70";
+
 // Pagos pendientes: en rojo, por encima de cualquier otro color.
 const ALERT_BLOCK_CLASS = "border-destructive bg-destructive/15 text-foreground ring-1 ring-destructive/40 hover:bg-destructive/25";
 
@@ -69,12 +72,16 @@ export function WeekCalendar({
   onSelect,
   onCreate,
   alertFor,
+  isPsicolink,
+  onTogglePsicolink,
 }: {
   appointments: Appointment[];
   patientName: (id: string) => string;
   onSelect: (a: Appointment) => void;
   onCreate: (date: Date, time: string) => void;
   alertFor?: (a: Appointment) => string | null;
+  isPsicolink?: (day: Date) => boolean;
+  onTogglePsicolink?: (day: Date) => void;
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [now, setNow] = useState(() => new Date());
@@ -143,8 +150,10 @@ export function WeekCalendar({
             <div />
             {days.map((d) => {
               const today = isSameDay(d, now);
+              const psicolink = isPsicolink?.(d) ?? false;
               return (
-                <div key={d.toISOString()} className="border-l border-border px-2 py-2 text-center">
+                <div key={d.toISOString()}
+                  className={cn("border-l border-border px-2 py-2 text-center", psicolink && PSICOLINK_COLUMN_CLASS)}>
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     {format(d, "EEE", { locale: es })}
                   </div>
@@ -156,6 +165,22 @@ export function WeekCalendar({
                   >
                     {format(d, "d")}
                   </div>
+                  {onTogglePsicolink && (
+                    <button
+                      type="button"
+                      onClick={() => onTogglePsicolink(d)}
+                      aria-pressed={psicolink}
+                      title={psicolink ? "Día de Psicolink (clic para quitar)" : "Marcar como día de Psicolink"}
+                      className={cn(
+                        "mt-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        psicolink
+                          ? "bg-sky-600 text-white hover:bg-sky-700"
+                          : "border border-dashed border-border text-muted-foreground/60 hover:border-sky-400 hover:text-sky-700"
+                      )}
+                    >
+                      Psicolink
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -181,7 +206,8 @@ export function WeekCalendar({
                   key={day.toISOString()}
                   className={cn(
                     "relative cursor-pointer border-l border-border",
-                    startOfDay(day) < startOfDay(now) && "bg-muted/30"
+                    isPsicolink?.(day) ? PSICOLINK_COLUMN_CLASS
+                      : startOfDay(day) < startOfDay(now) && "bg-muted/30"
                   )}
                   style={{ height: gridHeight }}
                   onClick={(e) => handleEmptyClick(day, e)}
