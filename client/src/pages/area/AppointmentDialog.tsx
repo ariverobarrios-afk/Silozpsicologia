@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { AlertTriangle, CalendarIcon, Sparkles, Ticket } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Sparkles, Ticket, TicketCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -34,7 +34,7 @@ import {
   type Profile,
   type SessionType,
 } from "@/lib/supabase";
-import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, euros, overdueDebts } from "@/lib/tariffs";
+import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoSessionNumber, euros, overdueDebts } from "@/lib/tariffs";
 import { fromInputs, toTimeInput } from "./format";
 
 // Las sesiones solo empiezan en punto o a y media.
@@ -141,6 +141,13 @@ export function AppointmentDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
+
+  // Si la cita ya estaba guardada con un bono, esa sesión ya está descontada.
+  const consumedBono =
+    appointment?.bono_id && appointment.status !== "cancelada"
+      ? bonos.find((b) => b.id === appointment.bono_id) ?? null
+      : null;
+  const consumedNumber = appointment ? bonoSessionNumber(appointment, appointments) : null;
 
   // Lo que el paciente ya debe (sin contar esta cita, que tiene su propio interruptor).
   const debts = patientId
@@ -282,6 +289,22 @@ export function AppointmentDialog({
             <div className="text-sm">
               <p className="font-semibold">Primera sesión{patient ? ` de ${patient.full_name || patient.email}` : ""}</p>
               <p>Tarifa de primera sesión: {euros(SESSION_TYPES.primera.price_cents)}.</p>
+            </div>
+          </div>
+        )}
+
+        {consumedBono && consumedNumber && (
+          <div className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm">
+            <TicketCheck className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div>
+              <p className="font-semibold text-foreground">
+                Sesión {consumedNumber} de {consumedBono.sessions_total} del bono · ya descontada
+              </p>
+              <p className="text-muted-foreground">
+                {BONO.label} del {format(new Date(consumedBono.created_at), "d/M/yyyy")} · quedan{" "}
+                {bonoRemaining(consumedBono, appointments)} ·{" "}
+                {consumedBono.paid_at ? "bono pagado" : <span className="font-medium text-destructive">bono pendiente de pago</span>}
+              </p>
             </div>
           </div>
         )}
@@ -468,7 +491,10 @@ export function AppointmentDialog({
                 <SelectContent>
                   {usableBonos.map((b) => (
                     <SelectItem key={b.id} value={b.id}>
-                      Bono del {format(new Date(b.created_at), "d/M/yyyy")} · quedan {bonoRemaining(b, appointments)} de {b.sessions_total}
+                      Bono del {format(new Date(b.created_at), "d/M/yyyy")} ·{" "}
+                      {b.id === consumedBono?.id && consumedNumber
+                        ? `esta cita es la sesión ${consumedNumber} de ${b.sessions_total}`
+                        : `quedan ${bonoRemaining(b, appointments)} de ${b.sessions_total}`}
                     </SelectItem>
                   ))}
                 </SelectContent>
