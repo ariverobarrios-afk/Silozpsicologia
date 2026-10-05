@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Appointment } from "@/lib/supabase";
+import { isPendingPayment } from "@/lib/tariffs";
 
 const HOUR_PX = 56; // alto de una hora en la rejilla
 const DEFAULT_START = 8; // franja visible por defecto: 8:00–21:00
@@ -23,6 +24,8 @@ const BLOCK_CLASS: Record<Appointment["status"], string> = {
   realizada: "border-muted-foreground/40 bg-muted text-muted-foreground hover:bg-muted/80",
   cancelada: "border-destructive/50 bg-destructive/10 text-muted-foreground line-through hover:bg-destructive/15",
 };
+// Las primeras sesiones destacan en un tono cálido para verlas de un vistazo.
+const FIRST_BLOCK_CLASS = "border-amber-500 bg-amber-100 text-amber-950 hover:bg-amber-200";
 
 function minutesOfDay(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
@@ -196,6 +199,8 @@ export function WeekCalendar({
                     const start = new Date(a.starts_at);
                     const top = ((minutesOfDay(start) - startHour * 60) / 60) * HOUR_PX;
                     const height = Math.max((a.duration_minutes / 60) * HOUR_PX - 2, 22);
+                    const isFirst = a.session_type === "primera" && a.status !== "cancelada";
+                    const unpaid = isPendingPayment(a) && start.getTime() < now.getTime();
                     return (
                       <button
                         key={a.id}
@@ -206,7 +211,7 @@ export function WeekCalendar({
                         }}
                         className={cn(
                           "absolute z-10 overflow-hidden rounded-[6px] border-l-4 px-1.5 py-1 text-left text-xs leading-tight shadow-sm transition-colors",
-                          BLOCK_CLASS[a.status]
+                          isFirst ? FIRST_BLOCK_CLASS : BLOCK_CLASS[a.status]
                         )}
                         style={{
                           top: top + 1,
@@ -214,8 +219,21 @@ export function WeekCalendar({
                           left: `calc(${(lane / lanes) * 100}% + 2px)`,
                           width: `calc(${100 / lanes}% - 4px)`,
                         }}
-                        title={`${patientName(a.patient_id)} · ${format(start, "HH:mm")} · ${a.duration_minutes} min`}
+                        title={[
+                          patientName(a.patient_id),
+                          format(start, "HH:mm"),
+                          `${a.duration_minutes} min`,
+                          isFirst && "Primera sesión",
+                          unpaid && "Pendiente de pago",
+                        ].filter(Boolean).join(" · ")}
                       >
+                        {unpaid && (
+                          <span className="absolute right-1 top-1 rounded-sm bg-amber-500 px-1 text-[10px] font-semibold leading-4 text-white"
+                            aria-label="Pendiente de pago">€</span>
+                        )}
+                        {isFirst && (
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide">1ª sesión</span>
+                        )}
                         <span className="block truncate font-medium">{patientName(a.patient_id)}</span>
                         <span className="block truncate opacity-80">
                           {format(start, "HH:mm")}–{format(new Date(start.getTime() + a.duration_minutes * 60_000), "HH:mm")}

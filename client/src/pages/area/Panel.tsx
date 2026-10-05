@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarIcon, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { CalendarDays, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -26,25 +23,16 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  STATUS_LABEL,
-  supabase,
-  type Appointment,
-  type AppointmentStatus,
-  type Profile,
-} from "@/lib/supabase";
+import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
+import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment } from "@/lib/tariffs";
+import { AppointmentDialog } from "./AppointmentDialog";
 import { AppointmentItem } from "./AppointmentItem";
+import { BonoDialog, PaymentsTab } from "./Payments";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
-import { formatDay, formatTime, fromInputs, toTimeInput } from "./format";
+import { formatDay, formatTime } from "./format";
 
 const ALL = "todos";
-
-// Las sesiones solo empiezan en punto o a y media.
-const TIME_SLOTS = Array.from({ length: 32 }, (_, i) => {
-  const minutes = 7 * 60 + i * 30; // 07:00 … 22:30
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${minutes % 60 === 0 ? "00" : "30"}`;
-});
 
 function PanelTerapeuta() {
   const [patients, setPatients] = useState<Profile[] | null>(null);
@@ -55,19 +43,23 @@ function PanelTerapeuta() {
   const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [bonos, setBonos] = useState<Bono[] | null>(null);
+  const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
 
   const reload = useCallback(async () => {
     if (!supabase) return;
-    const [p, a] = await Promise.all([
+    const [p, a, b] = await Promise.all([
       supabase.from("profiles").select("*").eq("role", "patient").order("full_name"),
       supabase.from("appointments").select("*").order("starts_at", { ascending: true }),
+      supabase.from("bonos").select("*").order("created_at", { ascending: true }),
     ]);
-    if (p.error || a.error) {
+    if (p.error || a.error || b.error) {
       toast.error("No se pudieron cargar los datos.");
       return;
     }
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
+    setBonos(b.data as Bono[]);
   }, []);
 
   useEffect(() => {
@@ -104,7 +96,13 @@ function PanelTerapeuta() {
     setEditing("new");
   };
 
-  if (!patients || !appointments) {
+  const setProcess = async (p: Profile, value: ProcessType) => {
+    const { error } = await supabase!.from("profiles").update({ process_type: value }).eq("id", p.id);
+    if (error) toast.error("No se pudo guardar el tipo de proceso.");
+    else reload();
+  };
+
+  if (!patients || !appointments || !bonos) {
     return (
       <AreaLayout title="Panel de consulta">
         <Spinner className="size-6 text-primary" />
@@ -124,6 +122,7 @@ function PanelTerapeuta() {
         <TabsList className="mb-6">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="pacientes">Pacientes ({patients.length})</TabsTrigger>
+          <TabsTrigger value="pagos">Pagos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agenda">
@@ -231,6 +230,13 @@ function PanelTerapeuta() {
                 const next = own.find(
                   (a) => new Date(a.starts_at).getTime() >= now && a.status === "programada"
                 );
+                const activeBono = bonos.find(
+                  (b) => b.patient_id === p.id && bonoRemaining(b, appointments) > 0
+                );
+                const pendingCents =
+                  own.filter((a) => isPendingPayment(a) && new Date(a.starts_at).getTime() <= now)
+                    .reduce((sum, a) => sum + a.price_cents, 0) +
+                  bonos.filter((b) => b.patient_id === p.id && !b.paid_at).reduce((sum, b) => sum + b.price_cents, 0);
                 return (
                   <li key={p.id}
                     className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 md:flex-row md:items-center md:justify-between">
@@ -246,6 +252,28 @@ function PanelTerapeuta() {
                         {own.length} {own.length === 1 ? "cita" : "citas"}
                         {next && ` · próxima: ${formatDay(next.starts_at)}, ${formatTime(next.starts_at)}`}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Select value={p.process_type ?? ""} onValueChange={(v) => setProcess(p, v as ProcessType)}>
+                          <SelectTrigger size="sm" className="h-7 w-auto text-xs">
+                            <SelectValue placeholder="Proceso sin asignar" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(PROCESS_LABEL) as ProcessType[]).map((k) => (
+                              <SelectItem key={k} value={k}>{PROCESS_LABEL[k]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {activeBono && (
+                          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                            Bono: quedan {bonoRemaining(activeBono, appointments)} de {activeBono.sessions_total}
+                          </Badge>
+                        )}
+                        {pendingCents > 0 && (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
+                            Pendiente {euros(pendingCents)}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => { setFilter(p.id); setTab("agenda"); }}>
@@ -253,6 +281,9 @@ function PanelTerapeuta() {
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => openNew(p.id)}>
                         Nueva cita
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setSellBonoFor({ patientId: p.id })}>
+                        Vender bono
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
                         {p.active ? "Desactivar" : "Activar"}
@@ -264,12 +295,25 @@ function PanelTerapeuta() {
             </ul>
           )}
         </TabsContent>
+
+        <TabsContent value="pagos">
+          <PaymentsTab
+            patients={patients}
+            appointments={appointments}
+            bonos={bonos}
+            patientName={patientName}
+            onChanged={reload}
+            onSellBono={(patientId) => setSellBonoFor({ patientId })}
+          />
+        </TabsContent>
       </Tabs>
 
       {editing && (
         <AppointmentDialog
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
+          appointments={appointments}
+          bonos={bonos}
           defaultPatientId={newDefaults.patientId}
           defaultDate={newDefaults.date}
           defaultTime={newDefaults.time}
@@ -277,177 +321,16 @@ function PanelTerapeuta() {
           onSaved={() => { setEditing(null); reload(); }}
         />
       )}
+      {sellBonoFor && (
+        <BonoDialog
+          patients={patients}
+          defaultPatientId={sellBonoFor.patientId}
+          onClose={() => setSellBonoFor(null)}
+          onSaved={() => { setSellBonoFor(null); reload(); }}
+        />
+      )}
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onInvited={reload} />
     </AreaLayout>
-  );
-}
-
-function AppointmentDialog({
-  patients,
-  appointment,
-  defaultPatientId,
-  defaultDate,
-  defaultTime,
-  onClose,
-  onSaved,
-}: {
-  patients: Profile[];
-  appointment: Appointment | null;
-  defaultPatientId?: string;
-  defaultDate?: Date;
-  defaultTime?: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [patientId, setPatientId] = useState(appointment?.patient_id ?? defaultPatientId ?? "");
-  const [date, setDate] = useState<Date | undefined>(
-    appointment ? new Date(appointment.starts_at) : defaultDate
-  );
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const initialTime = appointment ? toTimeInput(appointment.starts_at) : defaultTime ?? "";
-  // Una cita antigua a una hora fuera de franja obliga a elegir una válida.
-  const [time, setTime] = useState(TIME_SLOTS.includes(initialTime) ? initialTime : "");
-  const [duration, setDuration] = useState(String(appointment?.duration_minutes ?? 50));
-  const [status, setStatus] = useState<AppointmentStatus>(appointment?.status ?? "programada");
-  const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!patientId || !date || !time) {
-      toast.error("Elige paciente, fecha y hora.");
-      return;
-    }
-    const row = {
-      patient_id: patientId,
-      starts_at: fromInputs(format(date, "yyyy-MM-dd"), time),
-      duration_minutes: Number(duration) || 50,
-      // La consulta es solo online.
-      modality: "online" as const,
-      status,
-    };
-    setBusy(true);
-    const { error } = appointment
-      ? await supabase!.from("appointments").update(row).eq("id", appointment.id)
-      : await supabase!.from("appointments").insert(row);
-    setBusy(false);
-    if (error) {
-      toast.error("No se pudo guardar la cita.");
-      return;
-    }
-    toast.success(appointment ? "Cita actualizada." : "Cita creada.");
-    onSaved();
-  };
-
-  const onDelete = async () => {
-    if (!appointment) return;
-    setBusy(true);
-    const { error } = await supabase!.from("appointments").delete().eq("id", appointment.id);
-    setBusy(false);
-    if (error) {
-      toast.error("No se pudo borrar la cita.");
-      return;
-    }
-    toast.success("Cita borrada.");
-    onSaved();
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>{appointment ? "Editar cita" : "Nueva cita"}</DialogTitle>
-          <DialogDescription>El paciente verá esta cita en su área privada.</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label>Paciente</Label>
-            <Select value={patientId} onValueChange={setPatientId}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Elige un paciente" /></SelectTrigger>
-              <SelectContent>
-                {patients.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="date">Fecha</Label>
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger asChild>
-                <Button id="date" type="button" variant="outline"
-                  className="w-full justify-start rounded-md font-normal">
-                  <CalendarIcon className="size-4 text-muted-foreground" />
-                  {date ? (
-                    <span className="first-letter:uppercase">
-                      {format(date, "EEEE d 'de' MMMM yyyy", { locale: es })}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Elige una fecha</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  locale={es}
-                  weekStartsOn={1}
-                  selected={date}
-                  defaultMonth={date}
-                  onSelect={(d) => {
-                    setDate(d);
-                    setCalendarOpen(false);
-                  }}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="time">Hora</Label>
-              <Select value={time} onValueChange={setTime}>
-                <SelectTrigger id="time" className="w-full"><SelectValue placeholder="Elige una hora" /></SelectTrigger>
-                <SelectContent className="max-h-64">
-                  {TIME_SLOTS.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {initialTime && !TIME_SLOTS.includes(initialTime) && (
-                <p className="text-xs text-muted-foreground">
-                  Estaba a las {initialTime}; elige una hora en punto o y media.
-                </p>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="duration">Duración (min)</Label>
-              <Input id="duration" type="number" min={5} max={480} step={5} value={duration}
-                onChange={(e) => setDuration(e.target.value)} />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>Estado</Label>
-            <Select value={status} onValueChange={(v) => setStatus(v as AppointmentStatus)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(Object.keys(STATUS_LABEL) as AppointmentStatus[]).map((s) => (
-                  <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter className="gap-2 sm:justify-between">
-            {appointment ? (
-              <Button type="button" variant={confirmDelete ? "destructive" : "ghost"} disabled={busy}
-                onClick={() => (confirmDelete ? onDelete() : setConfirmDelete(true))}>
-                {confirmDelete ? "Confirmar borrado" : "Borrar"}
-              </Button>
-            ) : <span />}
-            <Button type="submit" disabled={busy} className="rounded-full">Guardar</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 

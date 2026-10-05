@@ -216,6 +216,105 @@ create trigger profiles_protect_own_role
   for each row execute function public.protect_own_role();
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Control de pagos.
+--   · profiles.process_type: proceso individual o de pareja (lo asigna Silvia).
+--   · appointments.session_type / price_cents: tarifa aplicada a la cita
+--     (precio congelado al crearla) y paid_at: cuándo se cobró (null = pendiente).
+--   · bonos: bono de N sesiones; cada cita de tipo 'bono' consume una.
+-- Tarifas vigentes en client/src/lib/tariffs.ts.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.profiles
+  add column if not exists process_type text check (process_type in ('individual', 'pareja'));
+
+create table if not exists public.bonos (
+  id              uuid primary key default gen_random_uuid(),
+  patient_id      uuid not null references public.profiles (id) on delete cascade,
+  sessions_total  integer not null default 5 check (sessions_total > 0),
+  price_cents     integer not null default 25000 check (price_cents >= 0),
+  paid_at         timestamptz,
+  created_at      timestamptz not null default now()
+);
+create index if not exists bonos_patient_idx on public.bonos (patient_id);
+alter table public.bonos enable row level security;
+
+alter table public.appointments
+  add column if not exists session_type text not null default 'individual'
+    check (session_type in ('primera', 'individual', 'pareja', 'bono')),
+  add column if not exists price_cents integer not null default 0 check (price_cents >= 0),
+  add column if not exists paid_at timestamptz,
+  add column if not exists bono_id uuid references public.bonos (id) on delete restrict;
+create index if not exists appointments_bono_idx on public.appointments (bono_id);
+
+do $do$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'appointments_bono_coherente') then
+    alter table public.appointments add constraint appointments_bono_coherente
+      check ((session_type = 'bono') = (bono_id is not null));
+  end if;
+end
+$do$;
+
+drop policy if exists "bonos: paciente ve los suyos, admin todos" on public.bonos;
+create policy "bonos: paciente ve los suyos, admin todos"
+  on public.bonos for select
+  to authenticated
+  using ((patient_id = auth.uid() and public.is_active()) or public.is_admin());
+
+drop policy if exists "bonos: admin crea" on public.bonos;
+create policy "bonos: admin crea"
+  on public.bonos for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "bonos: admin modifica" on public.bonos;
+create policy "bonos: admin modifica"
+  on public.bonos for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "bonos: admin borra" on public.bonos;
+create policy "bonos: admin borra"
+  on public.bonos for delete
+  to authenticated
+  using (public.is_admin());
+
+-- Un bono solo vale para su paciente y no admite más citas (no canceladas)
+-- que sesiones tiene.
+create or replace function public.check_bono_usage()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  b record;
+  used integer;
+begin
+  if new.bono_id is null or new.status = 'cancelada' then
+    return new;
+  end if;
+  select patient_id, sessions_total into b from public.bonos where id = new.bono_id;
+  if b.patient_id is distinct from new.patient_id then
+    raise exception 'El bono no pertenece a este paciente';
+  end if;
+  select count(*) into used from public.appointments
+   where bono_id = new.bono_id and status <> 'cancelada' and id <> new.id;
+  if used >= b.sessions_total then
+    raise exception 'El bono ya no tiene sesiones disponibles';
+  end if;
+  return new;
+end;
+$fn$;
+
+revoke all on function public.check_bono_usage() from public, anon, authenticated;
+
+drop trigger if exists appointments_check_bono on public.appointments;
+create trigger appointments_check_bono
+  before insert or update on public.appointments
+  for each row execute function public.check_bono_usage();
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

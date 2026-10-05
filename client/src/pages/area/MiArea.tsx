@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type Appointment } from "@/lib/supabase";
+import { supabase, type Appointment, type Bono } from "@/lib/supabase";
+import { BONO, bonoRemaining } from "@/lib/tariffs";
 import { AppointmentItem } from "./AppointmentItem";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 
 function MisCitas() {
   const { profile } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
+  const [bonos, setBonos] = useState<Bono[]>([]);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -23,6 +25,12 @@ function MisCitas() {
         if (error) setError(true);
         else setAppointments((data as Appointment[]) ?? []);
       });
+    supabase
+      .from("bonos")
+      .select("*")
+      .eq("patient_id", profile.id)
+      .order("created_at")
+      .then(({ data }) => setBonos((data as Bono[]) ?? []));
   }, [profile]);
 
   const now = Date.now();
@@ -37,6 +45,19 @@ function MisCitas() {
     <AreaLayout title={profile?.full_name ? `Hola, ${profile.full_name.split(" ")[0]}` : "Mi área"}>
       {error && <p className="text-destructive">No se pudieron cargar tus citas. Recarga la página.</p>}
       {!appointments && !error && <Spinner className="size-6 text-primary" />}
+      {appointments && bonos
+        .filter((b) => bonoRemaining(b, appointments) > 0)
+        .map((b) => {
+          const left = bonoRemaining(b, appointments);
+          return (
+            <div key={b.id} className="mb-8 rounded-2xl border border-primary/30 bg-primary/10 p-4">
+              <p className="font-medium text-foreground">{BONO.label}</p>
+              <p className="text-sm text-muted-foreground">
+                Te {left === 1 ? "queda 1 sesión" : `quedan ${left} sesiones`} de {b.sessions_total}.
+              </p>
+            </div>
+          );
+        })}
       {appointments && (
         <div className="grid gap-10 lg:grid-cols-2">
           <section>

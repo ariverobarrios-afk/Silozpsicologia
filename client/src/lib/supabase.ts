@@ -27,6 +27,8 @@ export const supabase: SupabaseClient | null = supabaseConfigured
 
 export type Role = "admin" | "patient";
 
+export type ProcessType = "individual" | "pareja";
+
 export interface Profile {
   id: string;
   role: Role;
@@ -34,11 +36,14 @@ export interface Profile {
   email: string;
   phone: string | null;
   active: boolean;
+  process_type: ProcessType | null;
   created_at: string;
 }
 
 export type Modality = "presencial" | "online";
 export type AppointmentStatus = "programada" | "realizada" | "cancelada";
+
+export type SessionType = "primera" | "individual" | "pareja" | "bono";
 
 export interface Appointment {
   id: string;
@@ -47,6 +52,19 @@ export interface Appointment {
   duration_minutes: number;
   modality: Modality;
   status: AppointmentStatus;
+  session_type: SessionType;
+  price_cents: number; // precio congelado al crear la cita (0 si va con bono)
+  paid_at: string | null; // null = pendiente de pago
+  bono_id: string | null;
+}
+
+export interface Bono {
+  id: string;
+  patient_id: string;
+  sessions_total: number;
+  price_cents: number;
+  paid_at: string | null;
+  created_at: string;
 }
 
 export const STATUS_LABEL: Record<AppointmentStatus, string> = {
