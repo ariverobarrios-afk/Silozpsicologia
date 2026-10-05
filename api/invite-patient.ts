@@ -9,10 +9,12 @@
 // comprobamos que quien llama es una usuaria con rol 'admin'.
 //
 // Variables de entorno (Vercel → Settings → Environment Variables):
-//   SUPABASE_URL               URL del proyecto (https://xxxx.supabase.co)
-//   SUPABASE_SERVICE_ROLE_KEY  Clave secreta service_role (¡no la publiques!)
+//   SUPABASE_SERVICE_ROLE_KEY  Clave secreta (sb_secret_… o service_role).
+//                              ¡No la publiques!
+//   SUPABASE_URL               (opcional) Por defecto la de shared/supabasePublic.ts
 
 import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_PUBLIC_URL } from "../shared/supabasePublic";
 
 export const config = { runtime: "edge" };
 
@@ -44,14 +46,15 @@ export default async function handler(req: Request): Promise<Response> {
   const supabaseUrl =
     env("SUPABASE_URL") ||
     env("VITE_SUPABASE_URL") ||
-    env("NEXT_PUBLIC_SUPABASE_URL");
+    env("NEXT_PUBLIC_SUPABASE_URL") ||
+    SUPABASE_PUBLIC_URL;
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
+  if (!serviceKey) {
     return json(
       {
         success: false,
         message:
-          "El área privada aún no está configurada (faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY).",
+          "El área privada aún no está configurada (falta SUPABASE_SERVICE_ROLE_KEY).",
       },
       500
     );

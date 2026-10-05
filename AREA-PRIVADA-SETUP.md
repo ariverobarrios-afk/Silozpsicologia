@@ -78,26 +78,19 @@ formulario):
 
 ## 5. Conectar Vercel con Supabase
 
-En Supabase → **Project Settings → API Keys** (o «API») copia la URL del
-proyecto y las claves. En Vercel → proyecto `silozpsicologia` → **Settings →
-Environment Variables** añade:
+La URL y la clave pública del proyecto (`lzypigesiibwmpzdkaht`) ya están en el
+código (`shared/supabasePublic.ts`); no son secretas. Solo falta **una**
+variable, la clave secreta, que usa el servidor para enviar invitaciones.
 
-| Nombre | Valor | ¿Secreta? |
-|---|---|---|
-| `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` | No |
-| `VITE_SUPABASE_ANON_KEY` | clave **anon** / **publishable** | No (es pública) |
-| `SUPABASE_URL` | `https://xxxx.supabase.co` | No |
-| `SUPABASE_SERVICE_ROLE_KEY` | clave **service_role** / **secret** | **Sí — nunca la compartas** |
-
-👉 **Para probar sin tocar producción**, marca solo **Preview** en las cuatro.
-Cuando todo esté validado y se publique, márcalas también en **Production**.
-
-(Alternativa: instalar la integración oficial de Supabase desde el Marketplace
-de Vercel, que crea estas variables sola; el código acepta sus nombres
-`NEXT_PUBLIC_SUPABASE_*`.)
-
-Después de añadirlas, vuelve a desplegar la versión de prueba (Deployments →
-el último de la rama → **Redeploy**), porque las variables se leen al construir.
+1. Supabase → **Project Settings → API Keys** → copia la clave **secret**
+   (`sb_secret_…`) o, en «Legacy API keys», la **service_role**.
+2. Vercel → proyecto `silozpsicologia` → **Settings → Environment Variables**:
+   - Key: `SUPABASE_SERVICE_ROLE_KEY`
+   - Value: la clave copiada
+   - Marca **Sensitive** y, para probar sin tocar producción, solo **Preview**.
+     Cuando se publique, añádela también en **Production**.
+3. Vuelve a desplegar la versión de prueba (Deployments → el último de la rama
+   → **Redeploy**).
 
 ## 6. Dar acceso de administradora a Silvia
 

@@ -1,15 +1,18 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_PUBLIC_URL, SUPABASE_PUBLISHABLE_KEY } from "../../../shared/supabasePublic";
 
 // Claves PÚBLICAS de Supabase (pensadas para el navegador; la seguridad real
-// la ponen las políticas RLS de supabase/schema.sql). Se aceptan con prefijo
-// VITE_ o con el NEXT_PUBLIC_ que crea la integración Supabase ↔ Vercel.
+// la ponen las políticas RLS de supabase/schema.sql). Por defecto las de
+// shared/supabasePublic.ts; se pueden sobrescribir con VITE_ o con el
+// NEXT_PUBLIC_ que crea la integración Supabase ↔ Vercel.
 const env = import.meta.env;
 const url: string | undefined =
-  env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_PUBLIC_URL;
 const anonKey: string | undefined =
   env.VITE_SUPABASE_ANON_KEY ||
   env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  SUPABASE_PUBLISHABLE_KEY;
 
 export const supabaseConfigured = Boolean(url && anonKey);
 
