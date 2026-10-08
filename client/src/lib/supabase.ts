@@ -37,6 +37,8 @@ export interface Profile {
   phone: string | null;
   active: boolean;
   process_type: ProcessType | null;
+  tax_id: string | null; // DNI/NIF para las facturas
+  address: string | null;
   created_at: string;
 }
 
@@ -77,3 +79,62 @@ export const MODALITY_LABEL: Record<Modality, string> = {
   presencial: "Presencial",
   online: "Online",
 };
+
+export type PaymentMethod = "transferencia" | "bizum" | "efectivo" | "tarjeta";
+
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  transferencia: "Transferencia bancaria",
+  bizum: "Bizum",
+  efectivo: "Efectivo",
+  tarjeta: "Tarjeta",
+};
+
+export interface InvoiceIssuer {
+  name: string;
+  tax_id: string;
+  address: string;
+  email: string;
+  phone: string;
+  bank_name: string;
+  bank_swift: string;
+  exemption_note: string;
+}
+
+// Factura emitida: copia congelada de todos los datos (no cambia aunque luego
+// cambien el paciente, la cita o los datos del emisor).
+export interface Invoice {
+  id: string;
+  series: string;
+  number: number;
+  code: string;
+  issue_date: string; // yyyy-MM-dd
+  patient_id: string;
+  recipient_name: string;
+  recipient_tax_id: string | null;
+  recipient_address: string | null;
+  issuer: InvoiceIssuer;
+  description: string;
+  quantity: number;
+  unit_price_cents: number;
+  vat_percent: number;
+  total_cents: number;
+  payment_method: PaymentMethod;
+  appointment_id: string | null;
+  bono_id: string | null;
+  created_at: string;
+}
+
+export interface InvoiceSettings {
+  issuer_name: string;
+  issuer_tax_id: string;
+  issuer_address: string;
+  issuer_email: string;
+  issuer_phone: string;
+  bank_name: string;
+  bank_swift: string;
+  series: string;
+  number_digits: number;
+  next_number: number;
+  last_date: string | null; // no se puede facturar con fecha anterior
+  exemption_note: string;
+}

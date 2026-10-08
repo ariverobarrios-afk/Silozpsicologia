@@ -253,6 +253,8 @@ export function AppointmentDialog({
     if (error) {
       toast.error(
         /una_primera/.test(error.message) ? "Este paciente ya tiene una primera sesión."
+        : /facturad/i.test(error.message) ? error.message
+        : /invoices/i.test(error.message) ? "Esta cita tiene factura: no se puede borrar."
         : /bono/i.test(error.message) ? error.message
         : "No se pudo guardar la cita."
       );
@@ -268,7 +270,7 @@ export function AppointmentDialog({
     const { error } = await supabase!.from("appointments").delete().eq("id", appointment.id);
     setBusy(false);
     if (error) {
-      toast.error("No se pudo borrar la cita.");
+      toast.error(/invoices/i.test(error.message) ? "Esta cita tiene factura: no se puede borrar." : "No se pudo borrar la cita.");
       return;
     }
     toast.success("Cita borrada.");

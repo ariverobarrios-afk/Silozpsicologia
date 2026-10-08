@@ -342,6 +342,263 @@ create policy "agenda_days: admin modifica"
   on public.agenda_days for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Facturación.
+--   · profiles.tax_id / address: datos fiscales del paciente (opcionales).
+--   · invoice_settings: datos del emisor, serie, siguiente número y fecha
+--     mínima (una sola fila).
+--   · invoices: facturas emitidas, inmutables (sin políticas de insert/update/
+--     delete: solo se crean con issue_invoices()). Numeración correlativa sin
+--     huecos y fechas no anteriores a la última factura de la serie.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.profiles
+  add column if not exists tax_id text,
+  add column if not exists address text;
+
+create table if not exists public.invoice_settings (
+  id              integer primary key default 1 check (id = 1),
+  issuer_name     text not null default '',
+  issuer_tax_id   text not null default '',
+  issuer_address  text not null default '',
+  issuer_email    text not null default '',
+  issuer_phone    text not null default '',
+  bank_name       text not null default '',
+  bank_swift      text not null default '',
+  series          text not null default 'IN',
+  number_digits   integer not null default 6 check (number_digits between 1 and 10),
+  next_number     integer not null default 1 check (next_number > 0),
+  last_date       date,
+  exemption_note  text not null default 'Factura exenta de IVA conforme al artículo 20.Uno.3 de la Ley 37/1992.',
+  updated_at      timestamptz not null default now()
+);
+alter table public.invoice_settings enable row level security;
+insert into public.invoice_settings (id) values (1) on conflict (id) do nothing;
+
+create table if not exists public.invoices (
+  id                 uuid primary key default gen_random_uuid(),
+  series             text not null,
+  number             integer not null check (number > 0),
+  code               text not null unique,
+  issue_date         date not null,
+  patient_id         uuid not null references public.profiles (id) on delete restrict,
+  recipient_name     text not null,
+  recipient_tax_id   text,
+  recipient_address  text,
+  issuer             jsonb not null,
+  description        text not null,
+  quantity           integer not null default 1 check (quantity > 0),
+  unit_price_cents   integer not null check (unit_price_cents >= 0),
+  vat_percent        numeric(5,2) not null default 0,
+  total_cents        integer not null check (total_cents >= 0),
+  payment_method     text not null check (payment_method in ('transferencia', 'bizum', 'efectivo', 'tarjeta')),
+  appointment_id     uuid unique references public.appointments (id) on delete restrict,
+  bono_id            uuid unique references public.bonos (id) on delete restrict,
+  created_at         timestamptz not null default now(),
+  unique (series, number),
+  check ((appointment_id is null) <> (bono_id is null))
+);
+create index if not exists invoices_issue_date_idx on public.invoices (series, issue_date);
+alter table public.invoices enable row level security;
+
+drop policy if exists "invoice_settings: admin lee" on public.invoice_settings;
+create policy "invoice_settings: admin lee"
+  on public.invoice_settings for select to authenticated using (public.is_admin());
+drop policy if exists "invoice_settings: admin modifica" on public.invoice_settings;
+create policy "invoice_settings: admin modifica"
+  on public.invoice_settings for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "invoices: admin lee" on public.invoices;
+create policy "invoices: admin lee"
+  on public.invoices for select to authenticated using (public.is_admin());
+
+-- No se puede retroceder la numeración ni la fecha mínima por debajo de lo emitido.
+create or replace function public.guard_invoice_settings()
+returns trigger
+language plpgsql
+set search_path = ''
+as $fn$
+declare
+  max_number integer;
+  max_date date;
+begin
+  select max(number), max(issue_date) into max_number, max_date
+    from public.invoices where series = new.series;
+  if max_number is not null and new.next_number <= max_number then
+    raise exception 'El siguiente número debe ser mayor que %, la última factura emitida de la serie %', max_number, new.series;
+  end if;
+  if max_date is not null and (new.last_date is null or new.last_date < max_date) then
+    raise exception 'La fecha mínima no puede ser anterior a la última factura emitida (%)', to_char(max_date, 'DD/MM/YYYY');
+  end if;
+  new.updated_at = now();
+  return new;
+end;
+$fn$;
+
+drop trigger if exists invoice_settings_guard on public.invoice_settings;
+create trigger invoice_settings_guard
+  before update on public.invoice_settings
+  for each row execute function public.guard_invoice_settings();
+
+-- Emite facturas de pagos cobrados. p_items: [{"kind":"cita"|"bono","id":"uuid"}, …]
+-- en el orden de numeración. El importe y el concepto salen de la base de datos.
+create or replace function public.issue_invoices(p_items jsonb, p_issue_date date, p_payment_method text)
+returns setof public.invoices
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  s public.invoice_settings%rowtype;
+  item jsonb;
+  v_kind text;
+  v_id uuid;
+  v_patient uuid;
+  v_desc text;
+  v_amount integer;
+  v_appt uuid;
+  v_bono uuid;
+  v_prof public.profiles%rowtype;
+  v_number integer;
+  v_max_date date;
+  a record;
+  b record;
+  inv public.invoices%rowtype;
+  today date := (now() at time zone 'Europe/Madrid')::date;
+begin
+  if not public.is_admin() then
+    raise exception 'No autorizado';
+  end if;
+  if p_payment_method not in ('transferencia', 'bizum', 'efectivo', 'tarjeta') then
+    raise exception 'Método de pago no válido';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'No hay pagos que facturar';
+  end if;
+
+  -- Bloquea los ajustes: dos emisiones a la vez no pueden repetir número.
+  select * into s from public.invoice_settings where id = 1 for update;
+  if not found then
+    raise exception 'Faltan los datos de facturación';
+  end if;
+
+  if p_issue_date > today then
+    raise exception 'La fecha de la factura no puede ser futura';
+  end if;
+  select max(issue_date) into v_max_date from public.invoices where series = s.series;
+  if (s.last_date is not null and p_issue_date < s.last_date)
+     or (v_max_date is not null and p_issue_date < v_max_date) then
+    raise exception 'La fecha no puede ser anterior a la de la última factura (%)',
+      to_char(greatest(coalesce(s.last_date, v_max_date), coalesce(v_max_date, s.last_date)), 'DD/MM/YYYY');
+  end if;
+
+  v_number := s.next_number;
+
+  for item in select value from jsonb_array_elements(p_items) loop
+    v_kind := item ->> 'kind';
+    v_id := (item ->> 'id')::uuid;
+    v_appt := null;
+    v_bono := null;
+
+    if v_kind = 'cita' then
+      select * into a from public.appointments where id = v_id for update;
+      if not found then raise exception 'Cita no encontrada'; end if;
+      if a.paid_at is null or a.session_type = 'bono' or a.price_cents <= 0 or a.status = 'cancelada' then
+        raise exception 'Hay una cita que no es un pago facturable';
+      end if;
+      if exists (select 1 from public.invoices where appointment_id = v_id) then
+        raise exception 'Una de las citas ya tiene factura';
+      end if;
+      v_patient := a.patient_id;
+      v_amount := a.price_cents;
+      v_appt := v_id;
+      v_desc := case a.session_type
+        when 'primera' then 'Primera sesión de psicología sanitaria'
+        when 'pareja' then 'Sesión de terapia de pareja'
+        else 'Sesión individual de psicología sanitaria' end;
+    elsif v_kind = 'bono' then
+      select * into b from public.bonos where id = v_id for update;
+      if not found then raise exception 'Bono no encontrado'; end if;
+      if b.paid_at is null then
+        raise exception 'Hay un bono sin pagar';
+      end if;
+      if exists (select 1 from public.invoices where bono_id = v_id) then
+        raise exception 'Uno de los bonos ya tiene factura';
+      end if;
+      v_patient := b.patient_id;
+      v_amount := b.price_cents;
+      v_bono := v_id;
+      v_desc := 'Bono ' || b.sessions_total || ' sesiones de psicología sanitaria';
+    else
+      raise exception 'Tipo de pago no válido';
+    end if;
+
+    select * into v_prof from public.profiles where id = v_patient;
+
+    insert into public.invoices (
+      series, number, code, issue_date, patient_id,
+      recipient_name, recipient_tax_id, recipient_address, issuer,
+      description, quantity, unit_price_cents, vat_percent, total_cents,
+      payment_method, appointment_id, bono_id
+    ) values (
+      s.series, v_number, s.series || lpad(v_number::text, s.number_digits, '0'), p_issue_date, v_patient,
+      coalesce(nullif(v_prof.full_name, ''), v_prof.email), v_prof.tax_id, v_prof.address,
+      jsonb_build_object(
+        'name', s.issuer_name, 'tax_id', s.issuer_tax_id, 'address', s.issuer_address,
+        'email', s.issuer_email, 'phone', s.issuer_phone,
+        'bank_name', s.bank_name, 'bank_swift', s.bank_swift, 'exemption_note', s.exemption_note
+      ),
+      v_desc, 1, v_amount, 0, v_amount,
+      p_payment_method, v_appt, v_bono
+    ) returning * into inv;
+
+    return next inv;
+    v_number := v_number + 1;
+  end loop;
+
+  update public.invoice_settings
+     set next_number = v_number, last_date = p_issue_date
+   where id = 1;
+end;
+$fn$;
+
+revoke all on function public.issue_invoices(jsonb, date, text) from public, anon;
+grant execute on function public.issue_invoices(jsonb, date, text) to authenticated;
+
+-- Un pago ya facturado no puede cambiar de importe, tarifa, paciente ni estado de pago.
+create or replace function public.guard_invoiced_payment()
+returns trigger
+language plpgsql
+set search_path = ''
+as $fn$
+begin
+  if tg_table_name = 'appointments' then
+    if exists (select 1 from public.invoices where appointment_id = old.id)
+       and (new.paid_at is distinct from old.paid_at
+            or new.price_cents is distinct from old.price_cents
+            or new.session_type is distinct from old.session_type
+            or new.patient_id is distinct from old.patient_id) then
+      raise exception 'Esta cita ya está facturada: no se puede cambiar su pago, tarifa ni paciente';
+    end if;
+  else
+    if exists (select 1 from public.invoices where bono_id = old.id)
+       and (new.paid_at is distinct from old.paid_at
+            or new.price_cents is distinct from old.price_cents
+            or new.patient_id is distinct from old.patient_id) then
+      raise exception 'Este bono ya está facturado: no se puede cambiar su pago, precio ni paciente';
+    end if;
+  end if;
+  return new;
+end;
+$fn$;
+
+drop trigger if exists appointments_guard_invoiced on public.appointments;
+create trigger appointments_guard_invoiced
+  before update on public.appointments
+  for each row execute function public.guard_invoiced_payment();
+drop trigger if exists bonos_guard_invoiced on public.bonos;
+create trigger bonos_guard_invoiced
+  before update on public.bonos
+  for each row execute function public.guard_invoiced_payment();
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

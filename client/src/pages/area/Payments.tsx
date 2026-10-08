@@ -78,13 +78,13 @@ export function PaymentsTab({
 
   const setBonoPaid = async (b: Bono, paid: boolean) => {
     const { error } = await supabase!.from("bonos").update({ paid_at: paid ? new Date().toISOString() : null }).eq("id", b.id);
-    if (error) toast.error("No se pudo actualizar el bono.");
+    if (error) toast.error(/facturad/i.test(error.message) ? error.message : "No se pudo actualizar el bono.");
     else onChanged();
   };
 
   const deleteBono = async (b: Bono) => {
     const { error } = await supabase!.from("bonos").delete().eq("id", b.id);
-    if (error) toast.error("No se puede borrar: el bono ya tiene sesiones.");
+    if (error) toast.error(/invoices/i.test(error.message) ? "No se puede borrar: el bono tiene factura." : "No se puede borrar: el bono ya tiene sesiones.");
     else {
       toast.success("Bono borrado.");
       onChanged();
