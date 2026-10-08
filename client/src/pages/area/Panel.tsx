@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
+import { CalendarDays, CalendarPlus, FileText, List, Pencil, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
-import { InvoicingSection, PatientDataDialog } from "./Invoicing";
+import { InvoicingSection, PatientDataDialog, PatientInvoicesDialog } from "./Invoicing";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
@@ -51,6 +51,7 @@ function PanelTerapeuta() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
   const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
+  const [invoicesFor, setInvoicesFor] = useState<Profile | null>(null);
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
 
   const reload = useCallback(async () => {
@@ -267,6 +268,7 @@ function PanelTerapeuta() {
                 const activeBono = bonos.find(
                   (b) => b.patient_id === p.id && bonoRemaining(b, appointments) > 0
                 );
+                const invoiceCount = invoices.filter((inv) => inv.patient_id === p.id).length;
                 const pendingCents =
                   own.filter((a) => isPendingPayment(a) && new Date(a.starts_at).getTime() <= now)
                     .reduce((sum, a) => sum + a.price_cents, 0) +
@@ -322,6 +324,10 @@ function PanelTerapeuta() {
                       <Button variant="outline" size="sm" onClick={() => setEditingPatient(p)}>
                         Datos fiscales
                       </Button>
+                      <Button variant="outline" size="sm" onClick={() => setInvoicesFor(p)}>
+                        <FileText className="size-4" />
+                        Facturas{invoiceCount > 0 && ` (${invoiceCount})`}
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
                         {p.active ? "Desactivar" : "Activar"}
                       </Button>
@@ -374,6 +380,9 @@ function PanelTerapeuta() {
           onClose={() => setEditingPatient(null)}
           onSaved={() => { setEditingPatient(null); reload(); }}
         />
+      )}
+      {invoicesFor && (
+        <PatientInvoicesDialog patient={invoicesFor} invoices={invoices} onClose={() => setInvoicesFor(null)} />
       )}
       {sellBonoFor && (
         <BonoDialog

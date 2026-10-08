@@ -487,3 +487,54 @@ export function PatientDataDialog({
     </Dialog>
   );
 }
+
+export function PatientInvoicesDialog({
+  patient,
+  invoices,
+  onClose,
+}: {
+  patient: Profile;
+  invoices: Invoice[];
+  onClose: () => void;
+}) {
+  const own = invoices
+    .filter((inv) => inv.patient_id === patient.id)
+    .sort((a, b) => b.number - a.number);
+  const total = own.reduce((s, inv) => s + inv.total_cents, 0);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Facturas de {patient.full_name || patient.email}</DialogTitle>
+          <DialogDescription>
+            {own.length === 0
+              ? "Todavía no tiene facturas emitidas desde la web."
+              : `${own.length} ${own.length === 1 ? "factura" : "facturas"} · ${euros(total)} en total`}
+          </DialogDescription>
+        </DialogHeader>
+        {own.length > 0 && (
+          <ul className="flex max-h-[60vh] flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border">
+            {own.map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{inv.code}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {shortDate(inv.issue_date)} · {inv.description} · {PAYMENT_METHOD_LABEL[inv.payment_method]}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="font-medium text-foreground">{euros(inv.total_cents)}</span>
+                  <Button size="sm" variant="outline" onClick={() => openInvoice(inv)}>
+                    <FileText className="size-4" />
+                    Ver / PDF
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
