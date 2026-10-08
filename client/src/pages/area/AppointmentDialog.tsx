@@ -142,6 +142,10 @@ export function AppointmentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
+  // Una cita marcada como pagada ya está cobrada: no se puede pasar a un bono
+  // (ni vendiendo uno nuevo) sin desmarcar antes "Pagada".
+  const paidBlocksBono = paid && sessionType !== "bono";
+
   // Si la cita ya estaba guardada con un bono, esa sesión ya está descontada.
   const consumedBono =
     appointment?.bono_id && appointment.status !== "cancelada"
@@ -422,7 +426,7 @@ export function AppointmentDialog({
             <Label htmlFor="tarifa">Tarifa</Label>
             {/* key: al aparecer la opción de bono (p. ej. tras venderlo aquí) el
                 desplegable se monta de nuevo; si no, pierde el valor elegido. */}
-            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}-${bonoBlocked}`} value={sessionType} onValueChange={(v) => {
+            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}-${bonoBlocked}-${paidBlocksBono}`} value={sessionType} onValueChange={(v) => {
               // Radix Select a veces emite "" al cambiar sus opciones: se ignora.
               if (!v) return;
               setSessionType(v as SessionType);
@@ -444,7 +448,7 @@ export function AppointmentDialog({
                     {SESSION_TYPES[appointment.session_type].label} · {euros(appointment.price_cents)}
                   </SelectItem>
                 )}
-                {usableBonos.length > 0 && !bonoBlocked && (
+                {usableBonos.length > 0 && !bonoBlocked && !paidBlocksBono && (
                   <SelectItem value="bono">Descontar de un bono</SelectItem>
                 )}
               </SelectContent>
@@ -454,14 +458,19 @@ export function AppointmentDialog({
                 La primera sesión no se puede pagar con bono.
               </p>
             )}
-            {patientId && usableBonos.length === 0 && !sellingBono && !bonoBlocked && (
+            {patientId && paidBlocksBono && !bonoBlocked && (
+              <p className="text-xs text-muted-foreground">
+                Esta cita está marcada como pagada, así que no se puede pasar a un bono.
+              </p>
+            )}
+            {patientId && usableBonos.length === 0 && !sellingBono && !bonoBlocked && !paidBlocksBono && (
               <Button type="button" variant="outline" size="sm" className="self-start"
                 onClick={() => setSellingBono(true)}>
                 <Ticket className="size-4" />
                 Vender {BONO.label.toLowerCase()} ({euros(BONO.price_cents)}) y usarlo en esta cita
               </Button>
             )}
-            {sellingBono && (
+            {sellingBono && !paidBlocksBono && (
               <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
                 <p className="text-sm text-foreground">
                   {BONO.label} por {euros(BONO.price_cents)} para {patient?.full_name || patient?.email}.
