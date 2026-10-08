@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { format, isSameMonth } from "date-fns";
 import { es } from "date-fns/locale";
 import { Ticket } from "lucide-react";
@@ -17,7 +17,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -35,6 +37,30 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
+}
+
+// Periodo contable: "2026-08" (un mes) o "2026" (un año entero).
+type Period = string;
+
+function inPeriod(iso: string, period: Period): boolean {
+  const d = new Date(iso);
+  const year = String(d.getFullYear());
+  return period.length === 4 ? year === period : `${year}-${String(d.getMonth() + 1).padStart(2, "0")}` === period;
+}
+
+function periodLabel(period: Period): string {
+  if (period.length === 4) return `el año ${period}`;
+  const [y, m] = period.split("-").map(Number);
+  return format(new Date(y, m - 1, 1), "MMMM yyyy", { locale: es });
+}
+
+interface Payment {
+  id: string;
+  paid_at: string;
+  patient_id: string;
+  kind: "sesion" | "bono";
+  concept: string;
+  cents: number;
 }
 
 export function PaymentsTab({
@@ -66,6 +92,47 @@ export function PaymentsTab({
       .filter((a) => a.paid_at && a.session_type !== "bono" && isSameMonth(new Date(a.paid_at), now))
       .reduce((s, a) => s + a.price_cents, 0) +
     bonos.filter((b) => b.paid_at && isSameMonth(new Date(b.paid_at), now)).reduce((s, b) => s + b.price_cents, 0);
+
+  // Cobros reales: citas pagadas sueltas (las de bono no cobran) y bonos pagados.
+  const payments: Payment[] = useMemo(
+    () =>
+      [
+        ...appointments
+          .filter((a) => a.paid_at && a.session_type !== "bono")
+          .map((a) => ({
+            id: a.id,
+            paid_at: a.paid_at!,
+            patient_id: a.patient_id,
+            kind: "sesion" as const,
+            concept: `${SESSION_TYPES[a.session_type].label} · ${formatDayTitle(a.starts_at)}`,
+            cents: a.price_cents,
+          })),
+        ...bonos
+          .filter((b) => b.paid_at)
+          .map((b) => ({ id: b.id, paid_at: b.paid_at!, patient_id: b.patient_id, kind: "bono" as const, concept: BONO.label, cents: b.price_cents })),
+      ].sort((a, b) => b.paid_at.localeCompare(a.paid_at)),
+    [appointments, bonos],
+  );
+
+  // Meses desde el primer cobro hasta hoy (más recientes primero) y los años correspondientes.
+  const { months, years } = useMemo(() => {
+    const first = payments.length ? new Date(payments[payments.length - 1].paid_at) : now;
+    const months: Period[] = [];
+    const cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(first.getFullYear(), first.getMonth(), 1);
+    while (cursor >= start) {
+      months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+      cursor.setMonth(cursor.getMonth() - 1);
+    }
+    const years = Array.from(new Set(months.map((m) => m.slice(0, 4))));
+    return { months, years };
+  }, [payments]);
+
+  const [period, setPeriod] = useState<Period>(months[0]);
+  const periodPayments = payments.filter((p) => inPeriod(p.paid_at, period));
+  const periodTotal = periodPayments.reduce((s, p) => s + p.cents, 0);
+  const periodBonos = periodPayments.filter((p) => p.kind === "bono");
+  const periodSessionsTotal = periodTotal - periodBonos.reduce((s, p) => s + p.cents, 0);
 
   const markAppointmentPaid = async (a: Appointment) => {
     const { error } = await supabase!.from("appointments").update({ paid_at: new Date().toISOString() }).eq("id", a.id);
@@ -136,6 +203,54 @@ export function PaymentsTab({
                   )}
                   <span className="font-medium text-foreground">{euros(a.price_cents)}</span>
                   <Button size="sm" variant="outline" onClick={() => markAppointmentPaid(a)}>Marcar pagada</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-serif text-2xl font-semibold text-foreground">Contabilidad</h2>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-full sm:w-[220px]" aria-label="Periodo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectGroup key={y}>
+                  <SelectLabel>{y}</SelectLabel>
+                  <SelectItem value={y}>Año {y} completo</SelectItem>
+                  {months.filter((m) => m.startsWith(y)).map((m) => (
+                    <SelectItem key={m} value={m} className="capitalize">{periodLabel(m)}</SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <SummaryCard label={`Cobrado en ${periodLabel(period)}`} value={euros(periodTotal)}
+            hint={`${periodPayments.length} ${periodPayments.length === 1 ? "cobro" : "cobros"}`} />
+          <SummaryCard label="Sesiones sueltas" value={euros(periodSessionsTotal)}
+            hint={`${periodPayments.length - periodBonos.length} pagadas`} />
+          <SummaryCard label="Bonos" value={euros(periodTotal - periodSessionsTotal)}
+            hint={`${periodBonos.length} ${periodBonos.length === 1 ? "bono pagado" : "bonos pagados"}`} />
+        </div>
+        {periodPayments.length === 0 ? (
+          <p className="mt-4 text-muted-foreground">No hay cobros en este periodo.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-border rounded-2xl border border-border bg-card">
+            {periodPayments.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{patientName(p.patient_id)}</p>
+                  <p className="text-muted-foreground">{p.concept}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-medium text-foreground">{euros(p.cents)}</p>
+                  <p className="text-xs text-muted-foreground">cobrado el {format(new Date(p.paid_at), "d/M/yyyy")}</p>
                 </div>
               </li>
             ))}
