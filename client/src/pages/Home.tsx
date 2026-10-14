@@ -134,11 +134,11 @@ export default function Home() {
             <div className="grid md:grid-cols-2 gap-12 items-center">
               <div className="flex justify-center">
                 <div className="w-32 h-32 rounded-full bg-primary/10 flex items-center justify-center">
-                  <svg className="w-20 h-20 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M12 6v6l4 2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <circle cx="12" cy="12" r="2" fill="currentColor"/>
-                  </svg>
+                  <img
+                    src="/images/simbolo-reloj-arena.png"
+                    alt="Símbolo de Siloz Psicología"
+                    className="h-24 w-auto"
+                  />
                 </div>
               </div>
               <div>
