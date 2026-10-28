@@ -1,7 +1,7 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { format, isSameMonth } from "date-fns";
+import { Children, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { Ticket } from "lucide-react";
+import { ChevronDown, ChevronUp, Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase, type Appointment, type Bono, type Profile } from "@/lib/supabase";
 import { BONO, SESSION_TYPES, bonoUsed, euros, isPendingPayment } from "@/lib/tariffs";
 import { FIRST_SESSION_CLASS } from "./AppointmentItem";
@@ -36,6 +37,27 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
       <p className="mt-1 font-serif text-2xl font-semibold text-foreground">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+// Lista que enseña solo los primeros registros y despliega el resto a
+// demanda, para que la pestaña no se llene de ruido.
+const VISIBLE_ROWS = 5;
+
+function ShowMoreList({ className, children }: { className: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = Children.toArray(children);
+  const hidden = items.length - VISIBLE_ROWS;
+  return (
+    <>
+      <ul className={className}>{expanded ? items : items.slice(0, VISIBLE_ROWS)}</ul>
+      {hidden > 0 && (
+        <Button variant="ghost" size="sm" className="mt-2 self-center" onClick={() => setExpanded(!expanded)}>
+          {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+          {expanded ? "Ver menos" : `Ver ${hidden} más`}
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -87,11 +109,6 @@ export function PaymentsTab({
   const dueTotal =
     pendingDue.reduce((s, a) => s + a.price_cents, 0) + unpaidBonos.reduce((s, b) => s + b.price_cents, 0);
   const upcomingTotal = pendingUpcoming.reduce((s, a) => s + a.price_cents, 0);
-  const monthTotal =
-    appointments
-      .filter((a) => a.paid_at && a.session_type !== "bono" && isSameMonth(new Date(a.paid_at), now))
-      .reduce((s, a) => s + a.price_cents, 0) +
-    bonos.filter((b) => b.paid_at && isSameMonth(new Date(b.paid_at), now)).reduce((s, b) => s + b.price_cents, 0);
 
   // Cobros reales: citas pagadas sueltas (las de bono no cobran) y bonos pagados.
   const payments: Payment[] = useMemo(
@@ -159,22 +176,77 @@ export function PaymentsTab({
   };
 
   const sortedBonos = [...bonos].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const pendingCount = pendingDue.length + unpaidBonos.length;
 
   return (
-    <div className="flex flex-col gap-10">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="Pendiente de cobro" value={euros(dueTotal)}
-          hint="Sesiones ya pasadas y bonos sin pagar" />
-        <SummaryCard label="Por cobrar en próximas citas" value={euros(upcomingTotal)} />
-        <SummaryCard label={`Cobrado en ${format(now, "MMMM", { locale: es })}`} value={euros(monthTotal)} />
-      </div>
+    <Tabs defaultValue="contabilidad">
+      <TabsList className="mb-6">
+        <TabsTrigger value="contabilidad">Contabilidad</TabsTrigger>
+        <TabsTrigger value="pendientes">
+          Pendientes de cobro{pendingCount > 0 ? ` (${pendingCount})` : ""}
+        </TabsTrigger>
+        <TabsTrigger value="bonos">Bonos</TabsTrigger>
+      </TabsList>
 
-      <section>
-        <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Pendiente de cobro</h2>
-        {pendingDue.length === 0 && unpaidBonos.length === 0 ? (
+      <TabsContent value="contabilidad" className="flex flex-col">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-serif text-2xl font-semibold text-foreground">Contabilidad</h2>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-full sm:w-[220px]" aria-label="Periodo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectGroup key={y}>
+                  <SelectLabel>{y}</SelectLabel>
+                  <SelectItem value={y}>Año {y} completo</SelectItem>
+                  {months.filter((m) => m.startsWith(y)).map((m) => (
+                    <SelectItem key={m} value={m} className="capitalize">{periodLabel(m)}</SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <SummaryCard label={`Cobrado en ${periodLabel(period)}`} value={euros(periodTotal)}
+            hint={`${periodPayments.length} ${periodPayments.length === 1 ? "cobro" : "cobros"}`} />
+          <SummaryCard label="Sesiones sueltas" value={euros(periodSessionsTotal)}
+            hint={`${periodPayments.length - periodBonos.length} pagadas`} />
+          <SummaryCard label="Bonos" value={euros(periodTotal - periodSessionsTotal)}
+            hint={`${periodBonos.length} ${periodBonos.length === 1 ? "bono pagado" : "bonos pagados"}`} />
+        </div>
+        {periodPayments.length === 0 ? (
+          <p className="mt-4 text-muted-foreground">No hay cobros en este periodo.</p>
+        ) : (
+          <ShowMoreList key={period} className="mt-4 divide-y divide-border rounded-2xl border border-border bg-card">
+            {periodPayments.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{patientName(p.patient_id)}</p>
+                  <p className="text-muted-foreground">{p.concept}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-medium text-foreground">{euros(p.cents)}</p>
+                  <p className="text-xs text-muted-foreground">cobrado el {format(new Date(p.paid_at), "d/M/yyyy")}</p>
+                </div>
+              </li>
+            ))}
+          </ShowMoreList>
+        )}
+      </TabsContent>
+
+      <TabsContent value="pendientes" className="flex flex-col">
+        <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Pendientes de cobro</h2>
+        <div className="mb-4 grid gap-4 sm:grid-cols-2">
+          <SummaryCard label="Pendiente de cobro" value={euros(dueTotal)}
+            hint="Sesiones ya pasadas y bonos sin pagar" />
+          <SummaryCard label="Por cobrar en próximas citas" value={euros(upcomingTotal)} />
+        </div>
+        {pendingCount === 0 ? (
           <p className="text-muted-foreground">Todo cobrado. 🎉</p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ShowMoreList className="flex flex-col gap-3">
             {unpaidBonos.map((b) => (
               <li key={b.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -206,59 +278,11 @@ export function PaymentsTab({
                 </div>
               </li>
             ))}
-          </ul>
+          </ShowMoreList>
         )}
-      </section>
+      </TabsContent>
 
-      <section>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="font-serif text-2xl font-semibold text-foreground">Contabilidad</h2>
-          <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-full sm:w-[220px]" aria-label="Periodo">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {years.map((y) => (
-                <SelectGroup key={y}>
-                  <SelectLabel>{y}</SelectLabel>
-                  <SelectItem value={y}>Año {y} completo</SelectItem>
-                  {months.filter((m) => m.startsWith(y)).map((m) => (
-                    <SelectItem key={m} value={m} className="capitalize">{periodLabel(m)}</SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <SummaryCard label={`Cobrado en ${periodLabel(period)}`} value={euros(periodTotal)}
-            hint={`${periodPayments.length} ${periodPayments.length === 1 ? "cobro" : "cobros"}`} />
-          <SummaryCard label="Sesiones sueltas" value={euros(periodSessionsTotal)}
-            hint={`${periodPayments.length - periodBonos.length} pagadas`} />
-          <SummaryCard label="Bonos" value={euros(periodTotal - periodSessionsTotal)}
-            hint={`${periodBonos.length} ${periodBonos.length === 1 ? "bono pagado" : "bonos pagados"}`} />
-        </div>
-        {periodPayments.length === 0 ? (
-          <p className="mt-4 text-muted-foreground">No hay cobros en este periodo.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-border rounded-2xl border border-border bg-card">
-            {periodPayments.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium text-foreground">{patientName(p.patient_id)}</p>
-                  <p className="text-muted-foreground">{p.concept}</p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="font-medium text-foreground">{euros(p.cents)}</p>
-                  <p className="text-xs text-muted-foreground">cobrado el {format(new Date(p.paid_at), "d/M/yyyy")}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
+      <TabsContent value="bonos" className="flex flex-col">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="font-serif text-2xl font-semibold text-foreground">Bonos</h2>
           <Button className="rounded-full" onClick={() => onSellBono()} disabled={patients.length === 0}>
@@ -269,7 +293,7 @@ export function PaymentsTab({
         {sortedBonos.length === 0 ? (
           <p className="text-muted-foreground">Todavía no se ha vendido ningún bono.</p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ShowMoreList className="flex flex-col gap-3">
             {sortedBonos.map((b) => {
               const used = bonoUsed(b, appointments);
               return (
@@ -303,10 +327,10 @@ export function PaymentsTab({
                 </li>
               );
             })}
-          </ul>
+          </ShowMoreList>
         )}
-      </section>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
