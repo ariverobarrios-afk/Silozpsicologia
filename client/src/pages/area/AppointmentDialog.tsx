@@ -28,6 +28,7 @@ import {
   STATUS_LABEL,
   supabase,
   type Appointment,
+  type AgendaEvent,
   type AppointmentStatus,
   type Bono,
   type ProcessType,
@@ -46,6 +47,7 @@ export const TIME_SLOTS = Array.from({ length: 32 }, (_, i) => {
 export function AppointmentDialog({
   patients,
   appointments,
+  events = [],
   bonos,
   appointment,
   defaultPatientId,
@@ -57,6 +59,7 @@ export function AppointmentDialog({
 }: {
   patients: Profile[];
   appointments: Appointment[];
+  events?: AgendaEvent[]; // para avisar si la cita choca con un evento
   bonos: Bono[];
   appointment: Appointment | null;
   defaultPatientId?: string;
@@ -152,6 +155,17 @@ export function AppointmentDialog({
       ? bonos.find((b) => b.id === appointment.bono_id) ?? null
       : null;
   const consumedNumber = appointment ? bonoSessionNumber(appointment, appointments) : null;
+
+  // Eventos de la agenda que se solapan con la hora elegida.
+  const clashingEvents = useMemo(() => {
+    if (!date || !time) return [];
+    const start = new Date(fromInputs(format(date, "yyyy-MM-dd"), time)).getTime();
+    const end = start + (Number(duration) || 0) * 60_000;
+    return events.filter((ev) => {
+      const evStart = new Date(ev.starts_at).getTime();
+      return evStart < end && evStart + ev.duration_minutes * 60_000 > start;
+    });
+  }, [events, date, time, duration]);
 
   // Lo que el paciente ya debe (sin contar esta cita, que tiene su propio interruptor).
   const debts = patientId
@@ -257,6 +271,8 @@ export function AppointmentDialog({
     if (error) {
       toast.error(
         /una_primera/.test(error.message) ? "Este paciente ya tiene una primera sesión."
+        : /facturad/i.test(error.message) ? error.message
+        : /invoices/i.test(error.message) ? "Esta cita tiene factura: no se puede borrar."
         : /bono/i.test(error.message) ? error.message
         : "No se pudo guardar la cita."
       );
@@ -272,7 +288,7 @@ export function AppointmentDialog({
     const { error } = await supabase!.from("appointments").delete().eq("id", appointment.id);
     setBusy(false);
     if (error) {
-      toast.error("No se pudo borrar la cita.");
+      toast.error(/invoices/i.test(error.message) ? "Esta cita tiene factura: no se puede borrar." : "No se pudo borrar la cita.");
       return;
     }
     toast.success("Cita borrada.");
@@ -419,6 +435,13 @@ export function AppointmentDialog({
                 onChange={(e) => setDuration(e.target.value)} />
             </div>
           </div>
+          {clashingEvents.length > 0 && (
+            <p className="-mt-2 flex items-start gap-2 rounded-xl border border-violet-300 bg-violet-50 p-3 text-sm text-violet-950">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              Coincide con {clashingEvents.length === 1 ? "el evento" : "los eventos"}{" "}
+              {clashingEvents.map((ev) => `«${ev.title}» (${format(new Date(ev.starts_at), "HH:mm")})`).join(", ")}.
+            </p>
+          )}
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="tarifa">Tarifa</Label>

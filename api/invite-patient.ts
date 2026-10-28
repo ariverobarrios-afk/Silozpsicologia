@@ -1,8 +1,14 @@
-// Función serverless de Vercel (Edge): la terapeuta invita a un paciente.
+// Función serverless de Vercel (Edge): la terapeuta da de alta o invita a un
+// paciente.
 //
-// Crea el usuario en Supabase Auth y le envía un email de invitación para que
-// elija su contraseña. El perfil (rol 'patient') lo crea el trigger de la base
-// de datos (ver supabase/schema.sql).
+//   · Alta con invitación (hay email e invite = true): crea el usuario en
+//     Supabase Auth y le envía un email para que elija su contraseña. El
+//     perfil (rol 'patient') lo crea el trigger de la base de datos.
+//   · Alta sin invitación (sin email o invite = false): solo crea la ficha
+//     del paciente, sin cuenta. Silvia gestiona su agenda igual.
+//   · Invitar a una ficha ya existente (profileId): le pone el email y le
+//     envía la invitación; el trigger enlaza la cuenta nueva con la ficha
+//     (ver supabase/schema.sql), así conserva citas y bonos.
 //
 // Necesita la clave service_role de Supabase, que NUNCA debe llegar al
 // navegador; por eso esto vive aquí y no en el frontend. Antes de hacer nada
@@ -22,6 +28,8 @@ interface InvitePayload {
   email?: string;
   fullName?: string;
   phone?: string;
+  invite?: boolean;
+  profileId?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -96,14 +104,58 @@ export default async function handler(req: Request): Promise<Response> {
   const email = (data.email || "").trim().toLowerCase();
   const fullName = (data.fullName || "").trim();
   const phone = (data.phone || "").trim();
-  if (!EMAIL_RE.test(email) || !fullName) {
-    return json(
-      { success: false, message: "Indica nombre y un email válido." },
-      400
-    );
+  const profileId = (data.profileId || "").trim();
+  if (email && !EMAIL_RE.test(email)) {
+    return json({ success: false, message: "El email no es válido." }, 400);
   }
 
-  // 4) Invitar. El enlace del email lleva al paciente a elegir su contraseña
+  // 4a) Alta sin invitación: solo la ficha.
+  if (!profileId && (!email || data.invite === false)) {
+    if (!fullName) {
+      return json({ success: false, message: "Indica el nombre." }, 400);
+    }
+    const { error: insertError } = await admin
+      .from("profiles")
+      .insert({ role: "patient", full_name: fullName, email, phone: phone || null });
+    if (insertError) {
+      console.error("Alta fallida:", insertError.message);
+      return json({ success: false, message: "No se pudo dar de alta al paciente." }, 502);
+    }
+    return json({ success: true, invited: false });
+  }
+
+  if (!email) {
+    return json({ success: false, message: "Indica un email válido." }, 400);
+  }
+
+  // 4b) Invitar a una ficha que aún no tiene cuenta: primero se le guarda el
+  //     email (el trigger solo enlaza si coincide).
+  let metadata: Record<string, string> = { full_name: fullName, phone };
+  if (profileId) {
+    const { data: target, error: targetError } = await admin
+      .from("profiles")
+      .select("id, role, full_name, phone, invited_at")
+      .eq("id", profileId)
+      .single();
+    if (targetError || !target || target.role !== "patient") {
+      return json({ success: false, message: "Paciente no encontrado." }, 404);
+    }
+    if (target.invited_at) {
+      return json({ success: false, message: "Este paciente ya tiene la invitación enviada." }, 409);
+    }
+    const { error: updateError } = await admin
+      .from("profiles")
+      .update({ email })
+      .eq("id", profileId);
+    if (updateError) {
+      return json({ success: false, message: "No se pudo guardar el email." }, 502);
+    }
+    metadata = { full_name: target.full_name, phone: target.phone ?? "", profile_id: profileId };
+  } else if (!fullName) {
+    return json({ success: false, message: "Indica nombre y un email válido." }, 400);
+  }
+
+  // 5) Invitar. El enlace del email lleva al paciente a elegir su contraseña
   //    en esta misma web (sirve igual en producción y en versiones de prueba,
   //    siempre que la URL esté permitida en Supabase → Authentication → URL
   //    Configuration → Redirect URLs).
@@ -111,7 +163,7 @@ export default async function handler(req: Request): Promise<Response> {
   const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(
     email,
     {
-      data: { full_name: fullName, phone },
+      data: metadata,
       redirectTo: `${origin}/acceso/nueva-contrasena`,
     }
   );
@@ -130,5 +182,5 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }
 
-  return json({ success: true });
+  return json({ success: true, invited: true });
 }

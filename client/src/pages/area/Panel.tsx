@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
+import { CalendarDays, CalendarPlus, FileText, List, Mail, Pencil, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,33 +21,52 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
+import { supabase, type AgendaEvent, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
+import { EventDialog, NewEntryDialog } from "./EventDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
+import { InvoicingSection, PatientDataDialog, PatientInvoicesDialog } from "./Invoicing";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
 
 const ALL = "todos";
 
+type PatientStatusFilter = "activos" | "inactivos" | "todos";
+const PATIENT_STATUS_LABEL: Record<PatientStatusFilter, string> = {
+  activos: "Activos",
+  inactivos: "Inactivos",
+  todos: "Todos",
+};
+
 function PanelTerapeuta() {
   const [patients, setPatients] = useState<Profile[] | null>(null);
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
   const [tab, setTab] = useState("agenda");
   const [filter, setFilter] = useState<string>(ALL);
+  const [patientStatus, setPatientStatus] = useState<PatientStatusFilter>("activos");
   const [editing, setEditing] = useState<Appointment | "new" | null>(null);
   const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteExisting, setInviteExisting] = useState<Profile | null>(null);
   const [bonos, setBonos] = useState<Bono[] | null>(null);
   // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
   const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
+  const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
+  const [invoicesFor, setInvoicesFor] = useState<Profile | null>(null);
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
+  const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
+  const [choosingNew, setChoosingNew] = useState(false);
 
   const reload = useCallback(async () => {
     if (!supabase) return;
@@ -63,7 +82,15 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
-    const { data: days } = await supabase.from("agenda_days").select("day, psicolink");
+    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }] = await Promise.all([
+      supabase.from("agenda_days").select("day, psicolink"),
+      supabase.from("invoices").select("*").order("number"),
+      supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
+    ]);
+    setEvents((ev as AgendaEvent[] | null) ?? []);
+    setInvoices((inv as Invoice[] | null) ?? []);
+    setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
     setPsicolinkDays(new Map(((days as AgendaDay[] | null) ?? []).map((d) => [d.day, d.psicolink])));
   }, []);
 
@@ -90,6 +117,10 @@ function PanelTerapeuta() {
     return (id: string) => map.get(id) ?? "Paciente";
   }, [patients]);
 
+  const listedPatients = (patients ?? []).filter((p) =>
+    patientStatus === "todos" ? true : patientStatus === "activos" ? p.active : !p.active
+  );
+
   const now = Date.now();
   const visible = (appointments ?? []).filter((a) => filter === ALL || a.patient_id === filter);
   const upcoming = visible.filter((a) => new Date(a.starts_at).getTime() >= now);
@@ -113,6 +144,12 @@ function PanelTerapeuta() {
   const openNew = (patientId?: string, date?: Date, time?: string) => {
     setNewDefaults({ patientId, date, time });
     setEditing("new");
+  };
+
+  // Desde la agenda: primero se elige si es una cita o un evento.
+  const chooseNew = (patientId?: string, date?: Date, time?: string) => {
+    setNewDefaults({ patientId, date, time });
+    setChoosingNew(true);
   };
 
   const setProcess = async (p: Profile, value: ProcessType) => {
@@ -142,7 +179,7 @@ function PanelTerapeuta() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
-          <TabsTrigger value="pacientes">Pacientes ({patients.length})</TabsTrigger>
+          <TabsTrigger value="pacientes">Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
           <TabsTrigger value="pagos">Pagos</TabsTrigger>
         </TabsList>
 
@@ -172,30 +209,29 @@ function PanelTerapeuta() {
                   Lista
                 </Button>
               </div>
-              <Button onClick={() => openNew(filter === ALL ? undefined : filter)} disabled={patients.length === 0}
-                className="rounded-full">
+              <Button onClick={() => chooseNew(filter === ALL ? undefined : filter)} className="rounded-full">
                 <CalendarPlus className="size-4" />
-                Nueva cita
+                Añadir
               </Button>
             </div>
           </div>
           {patients.length === 0 && (
             <p className="mb-6 text-muted-foreground">
-              Primero invita a un paciente desde la pestaña «Pacientes».
+              Primero da de alta a un paciente desde la pestaña «Pacientes».
             </p>
           )}
 
           {view === "calendario" ? (
             <WeekCalendar
               appointments={visible}
+              events={events}
               patientName={patientName}
               onSelect={(a) => setEditing(a)}
+              onSelectEvent={(ev) => setEditingEvent(ev)}
               alertFor={alertFor}
               isPsicolink={(d) => isPsicolinkDay(d, psicolinkDays)}
               onTogglePsicolink={togglePsicolink}
-              onCreate={(date, time) => {
-                if (patients.length > 0) openNew(filter === ALL ? undefined : filter, date, time);
-              }}
+              onCreate={(date, time) => chooseNew(filter === ALL ? undefined : filter, date, time)}
             />
           ) : (
             <div className="grid gap-10 lg:grid-cols-2">
@@ -239,17 +275,33 @@ function PanelTerapeuta() {
         </TabsContent>
 
         <TabsContent value="pacientes">
-          <div className="mb-6 flex justify-end">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Select value={patientStatus} onValueChange={(v) => setPatientStatus(v as PatientStatusFilter)}>
+              <SelectTrigger className="w-full sm:w-48" aria-label="Mostrar pacientes">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(PATIENT_STATUS_LABEL) as PatientStatusFilter[]).map((k) => (
+                  <SelectItem key={k} value={k}>{PATIENT_STATUS_LABEL[k]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={() => setInviteOpen(true)} className="rounded-full">
               <UserPlus className="size-4" />
-              Invitar paciente
+              Nuevo paciente
             </Button>
           </div>
-          {patients.length === 0 ? (
-            <p className="text-muted-foreground">Todavía no hay pacientes.</p>
+          {listedPatients.length === 0 ? (
+            <p className="text-muted-foreground">
+              {patients.length === 0
+                ? "Todavía no hay pacientes."
+                : patientStatus === "inactivos"
+                  ? "No hay pacientes inactivos."
+                  : "No hay pacientes activos."}
+            </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {patients.map((p) => {
+              {listedPatients.map((p) => {
                 const own = appointments.filter((a) => a.patient_id === p.id);
                 const next = own.find(
                   (a) => new Date(a.starts_at).getTime() >= now && a.status === "programada"
@@ -257,6 +309,7 @@ function PanelTerapeuta() {
                 const activeBono = bonos.find(
                   (b) => b.patient_id === p.id && bonoRemaining(b, appointments) > 0
                 );
+                const invoiceCount = invoices.filter((inv) => inv.patient_id === p.id).length;
                 const pendingCents =
                   own.filter((a) => isPendingPayment(a) && new Date(a.starts_at).getTime() <= now)
                     .reduce((sum, a) => sum + a.price_cents, 0) +
@@ -270,7 +323,7 @@ function PanelTerapeuta() {
                         {!p.active && <span className="ml-2 text-sm text-destructive">· desactivado</span>}
                       </p>
                       <p className="truncate text-sm text-muted-foreground">
-                        {p.email}{p.phone ? ` · ${p.phone}` : ""}
+                        {[p.email || "Sin email", p.phone, p.tax_id].filter(Boolean).join(" · ")}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {own.length} {own.length === 1 ? "cita" : "citas"}
@@ -287,6 +340,11 @@ function PanelTerapeuta() {
                             ))}
                           </SelectContent>
                         </Select>
+                        {!p.invited_at && (
+                          <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">
+                            Sin invitación enviada
+                          </Badge>
+                        )}
                         {activeBono && (
                           <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                             Bono: quedan {bonoRemaining(activeBono, appointments)} de {activeBono.sessions_total}
@@ -309,6 +367,19 @@ function PanelTerapeuta() {
                       <Button variant="outline" size="sm" onClick={() => setSellBonoFor({ patientId: p.id })}>
                         Vender bono
                       </Button>
+                      {!p.invited_at && (
+                        <Button variant="outline" size="sm" onClick={() => setInviteExisting(p)}>
+                          <Mail className="size-4" />
+                          Enviar invitación
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => setEditingPatient(p)}>
+                        Datos fiscales
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setInvoicesFor(p)}>
+                        <FileText className="size-4" />
+                        Facturas{invoiceCount > 0 && ` (${invoiceCount})`}
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
                         {p.active ? "Desactivar" : "Activar"}
                       </Button>
@@ -328,6 +399,17 @@ function PanelTerapeuta() {
             patientName={patientName}
             onChanged={reload}
             onSellBono={(patientId) => setSellBonoFor({ patientId })}
+            invoicing={
+              <InvoicingSection
+                patients={patients}
+                appointments={appointments}
+                bonos={bonos}
+                invoices={invoices}
+                settings={invoiceSettings}
+                patientName={patientName}
+                onChanged={reload}
+              />
+            }
           />
         </TabsContent>
       </Tabs>
@@ -337,6 +419,7 @@ function PanelTerapeuta() {
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
           appointments={appointments}
+          events={events}
           bonos={bonos}
           onRefresh={reload}
           defaultPatientId={newDefaults.patientId}
@@ -346,6 +429,33 @@ function PanelTerapeuta() {
           onSaved={() => { setEditing(null); reload(); }}
         />
       )}
+      {choosingNew && (
+        <NewEntryDialog
+          canAddAppointment={patients.some((p) => p.active)}
+          onClose={() => setChoosingNew(false)}
+          onAppointment={() => { setChoosingNew(false); setEditing("new"); }}
+          onEvent={() => { setChoosingNew(false); setEditingEvent("new"); }}
+        />
+      )}
+      {editingEvent && (
+        <EventDialog
+          event={editingEvent === "new" ? null : editingEvent}
+          defaultDate={newDefaults.date}
+          defaultTime={newDefaults.time}
+          onClose={() => setEditingEvent(null)}
+          onSaved={() => { setEditingEvent(null); reload(); }}
+        />
+      )}
+      {editingPatient && (
+        <PatientDataDialog
+          patient={editingPatient}
+          onClose={() => setEditingPatient(null)}
+          onSaved={() => { setEditingPatient(null); reload(); }}
+        />
+      )}
+      {invoicesFor && (
+        <PatientInvoicesDialog patient={invoicesFor} invoices={invoices} onClose={() => setInvoicesFor(null)} />
+      )}
       {sellBonoFor && (
         <BonoDialog
           patients={patients}
@@ -354,63 +464,80 @@ function PanelTerapeuta() {
           onSaved={() => { setSellBonoFor(null); reload(); }}
         />
       )}
-      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onInvited={reload} />
+      <NewPatientDialog open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reload} />
+      {inviteExisting && (
+        <SendInviteDialog
+          patient={inviteExisting}
+          onClose={() => setInviteExisting(null)}
+          onInvited={() => { setInviteExisting(null); reload(); }}
+        />
+      )}
     </AreaLayout>
   );
 }
 
-function InviteDialog({
+type InviteResponse = { success?: boolean; invited?: boolean; message?: string };
+
+async function callInviteApi(token: string | undefined, payload: Record<string, unknown>): Promise<InviteResponse | null> {
+  try {
+    const resp = await fetch("/api/invite-patient", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token ?? ""}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = (await resp.json().catch(() => ({}))) as InviteResponse;
+    return resp.ok && body.success ? body : { ...body, success: false };
+  } catch {
+    return null;
+  }
+}
+
+function NewPatientDialog({
   open,
   onOpenChange,
-  onInvited,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onInvited: () => void;
+  onCreated: () => void;
 }) {
   const { session } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [invite, setInvite] = useState(true);
   const [busy, setBusy] = useState(false);
+  const willInvite = Boolean(email.trim()) && invite;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    try {
-      const resp = await fetch("/api/invite-patient", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ fullName, email, phone }),
-      });
-      const body = (await resp.json().catch(() => ({}))) as { success?: boolean; message?: string };
-      if (!resp.ok || !body.success) {
-        toast.error(body.message || "No se pudo enviar la invitación.");
-        return;
-      }
-      toast.success(`Invitación enviada a ${email}.`);
-      setFullName("");
-      setEmail("");
-      setPhone("");
-      onOpenChange(false);
-      onInvited();
-    } catch {
-      toast.error("No se pudo enviar la invitación.");
-    } finally {
-      setBusy(false);
+    const body = await callInviteApi(session?.access_token, { fullName, email, phone, invite: willInvite });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo dar de alta al paciente.");
+      return;
     }
+    toast.success(body.invited ? `Invitación enviada a ${email.trim()}.` : `${fullName.trim()} dado de alta.`);
+    setFullName("");
+    setEmail("");
+    setPhone("");
+    setInvite(true);
+    onOpenChange(false);
+    onCreated();
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle>Invitar paciente</DialogTitle>
+          <DialogTitle>Nuevo paciente</DialogTitle>
           <DialogDescription>
-            Recibirá un email para crear su contraseña y acceder a sus citas.
+            Si tienes su email, puedes invitarle para que vea sus citas. Si no, se da de alta igualmente y
+            podrás invitarle más adelante.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
@@ -419,12 +546,71 @@ function InviteDialog({
             <Input id="inv-name" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="inv-email">Email</Label>
-            <Input id="inv-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Label htmlFor="inv-email">Email (opcional)</Label>
+            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="inv-phone">Teléfono (opcional)</Label>
             <Input id="inv-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          {email.trim() && (
+            <label className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
+              Enviar invitación al área privada
+              <Switch checked={invite} onCheckedChange={setInvite} />
+            </label>
+          )}
+          <DialogFooter>
+            <Button type="submit" disabled={busy} className="rounded-full">
+              {willInvite ? "Dar de alta y enviar invitación" : "Dar de alta"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SendInviteDialog({
+  patient,
+  onClose,
+  onInvited,
+}: {
+  patient: Profile;
+  onClose: () => void;
+  onInvited: () => void;
+}) {
+  const { session } = useAuth();
+  const [email, setEmail] = useState(patient.email);
+  const [busy, setBusy] = useState(false);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const body = await callInviteApi(session?.access_token, { profileId: patient.id, email });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo enviar la invitación.");
+      return;
+    }
+    toast.success(`Invitación enviada a ${email.trim()}.`);
+    onInvited();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Enviar invitación</DialogTitle>
+          <DialogDescription>
+            {patient.full_name || "El paciente"} recibirá un email para crear su contraseña y verá sus citas y
+            bonos.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-existing-email">Email</Label>
+            <Input id="inv-existing-email" type="email" required value={email}
+              onChange={(e) => setEmail(e.target.value)} />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={busy} className="rounded-full">Enviar invitación</Button>
