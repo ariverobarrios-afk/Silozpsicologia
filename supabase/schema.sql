@@ -691,6 +691,44 @@ $$;
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Eventos de la agenda: tareas, reuniones, sesiones de otros centros… que
+-- bloquean horas sin ser una cita (sin paciente, tarifa ni pago). Solo los ve
+-- y gestiona la terapeuta.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.agenda_events (
+  id                uuid primary key default gen_random_uuid(),
+  title             text not null check (length(trim(title)) > 0),
+  starts_at         timestamptz not null,
+  duration_minutes  integer not null default 60 check (duration_minutes between 5 and 1440),
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+create index if not exists agenda_events_starts_idx on public.agenda_events (starts_at);
+alter table public.agenda_events enable row level security;
+
+drop trigger if exists agenda_events_touch_updated_at on public.agenda_events;
+create trigger agenda_events_touch_updated_at
+  before update on public.agenda_events
+  for each row execute function public.touch_updated_at();
+
+drop policy if exists "agenda_events: admin lee" on public.agenda_events;
+create policy "agenda_events: admin lee"
+  on public.agenda_events for select to authenticated using (public.is_admin());
+drop policy if exists "agenda_events: admin crea" on public.agenda_events;
+create policy "agenda_events: admin crea"
+  on public.agenda_events for insert to authenticated with check (public.is_admin());
+drop policy if exists "agenda_events: admin modifica" on public.agenda_events;
+create policy "agenda_events: admin modifica"
+  on public.agenda_events for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "agenda_events: admin borra" on public.agenda_events;
+create policy "agenda_events: admin borra"
+  on public.agenda_events for delete to authenticated using (public.is_admin());
+
+-- Preparado para pacientes que no son propios de Silvia sino de otro centro o
+-- empresa (p. ej. Psicolink). null = paciente propio. Aún no se usa en la web.
+alter table public.profiles add column if not exists external_center text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

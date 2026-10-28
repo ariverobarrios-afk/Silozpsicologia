@@ -24,10 +24,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile } from "@/lib/supabase";
+import { supabase, type AgendaEvent, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
+import { EventDialog, NewEntryDialog } from "./EventDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
 import { InvoicingSection, PatientDataDialog, PatientInvoicesDialog } from "./Invoicing";
@@ -63,6 +64,9 @@ function PanelTerapeuta() {
   const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
   const [invoicesFor, setInvoicesFor] = useState<Profile | null>(null);
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
+  const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
+  const [choosingNew, setChoosingNew] = useState(false);
 
   const reload = useCallback(async () => {
     if (!supabase) return;
@@ -78,11 +82,13 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
-    const [{ data: days }, { data: inv }, { data: settings }] = await Promise.all([
+    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }] = await Promise.all([
       supabase.from("agenda_days").select("day, psicolink"),
       supabase.from("invoices").select("*").order("number"),
       supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
     ]);
+    setEvents((ev as AgendaEvent[] | null) ?? []);
     setInvoices((inv as Invoice[] | null) ?? []);
     setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
     setPsicolinkDays(new Map(((days as AgendaDay[] | null) ?? []).map((d) => [d.day, d.psicolink])));
@@ -138,6 +144,12 @@ function PanelTerapeuta() {
   const openNew = (patientId?: string, date?: Date, time?: string) => {
     setNewDefaults({ patientId, date, time });
     setEditing("new");
+  };
+
+  // Desde la agenda: primero se elige si es una cita o un evento.
+  const chooseNew = (patientId?: string, date?: Date, time?: string) => {
+    setNewDefaults({ patientId, date, time });
+    setChoosingNew(true);
   };
 
   const setProcess = async (p: Profile, value: ProcessType) => {
@@ -197,10 +209,9 @@ function PanelTerapeuta() {
                   Lista
                 </Button>
               </div>
-              <Button onClick={() => openNew(filter === ALL ? undefined : filter)} disabled={patients.length === 0}
-                className="rounded-full">
+              <Button onClick={() => chooseNew(filter === ALL ? undefined : filter)} className="rounded-full">
                 <CalendarPlus className="size-4" />
-                Nueva cita
+                Añadir
               </Button>
             </div>
           </div>
@@ -213,14 +224,14 @@ function PanelTerapeuta() {
           {view === "calendario" ? (
             <WeekCalendar
               appointments={visible}
+              events={events}
               patientName={patientName}
               onSelect={(a) => setEditing(a)}
+              onSelectEvent={(ev) => setEditingEvent(ev)}
               alertFor={alertFor}
               isPsicolink={(d) => isPsicolinkDay(d, psicolinkDays)}
               onTogglePsicolink={togglePsicolink}
-              onCreate={(date, time) => {
-                if (patients.length > 0) openNew(filter === ALL ? undefined : filter, date, time);
-              }}
+              onCreate={(date, time) => chooseNew(filter === ALL ? undefined : filter, date, time)}
             />
           ) : (
             <div className="grid gap-10 lg:grid-cols-2">
@@ -408,6 +419,7 @@ function PanelTerapeuta() {
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
           appointments={appointments}
+          events={events}
           bonos={bonos}
           onRefresh={reload}
           defaultPatientId={newDefaults.patientId}
@@ -415,6 +427,23 @@ function PanelTerapeuta() {
           defaultTime={newDefaults.time}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload(); }}
+        />
+      )}
+      {choosingNew && (
+        <NewEntryDialog
+          canAddAppointment={patients.some((p) => p.active)}
+          onClose={() => setChoosingNew(false)}
+          onAppointment={() => { setChoosingNew(false); setEditing("new"); }}
+          onEvent={() => { setChoosingNew(false); setEditingEvent("new"); }}
+        />
+      )}
+      {editingEvent && (
+        <EventDialog
+          event={editingEvent === "new" ? null : editingEvent}
+          defaultDate={newDefaults.date}
+          defaultTime={newDefaults.time}
+          onClose={() => setEditingEvent(null)}
+          onSaved={() => { setEditingEvent(null); reload(); }}
         />
       )}
       {editingPatient && (

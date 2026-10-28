@@ -40,6 +40,7 @@ export interface Profile {
   tax_id: string | null; // DNI/NIF para las facturas
   address: string | null;
   invited_at: string | null; // null = nunca se le ha enviado la invitación
+  external_center: string | null; // centro o empresa del que viene (null = propio)
   created_at: string;
 }
 
@@ -70,6 +71,14 @@ export interface Bono {
   paid_at: string | null;
   invoice_skipped_at: string | null; // marcado «no facturar»
   created_at: string;
+}
+
+// Evento de la agenda (tarea, reunión…): bloquea horas, sin paciente ni pago.
+export interface AgendaEvent {
+  id: string;
+  title: string;
+  starts_at: string;
+  duration_minutes: number;
 }
 
 export const STATUS_LABEL: Record<AppointmentStatus, string> = {

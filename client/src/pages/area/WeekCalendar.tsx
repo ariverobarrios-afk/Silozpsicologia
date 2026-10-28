@@ -12,7 +12,7 @@ import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Appointment } from "@/lib/supabase";
+import type { AgendaEvent, Appointment } from "@/lib/supabase";
 import { isPendingPayment } from "@/lib/tariffs";
 
 const HOUR_PX = 56; // alto de una hora en la rejilla
@@ -29,6 +29,10 @@ const FIRST_BLOCK_CLASS = "border-amber-500 bg-amber-100 text-amber-950 hover:bg
 // Días de Psicolink: la columna entera en azul suave para que destaque.
 const PSICOLINK_COLUMN_CLASS = "bg-sky-100/70";
 
+// Eventos (tareas, reuniones…): violeta y rayado, para no confundirlos con citas.
+const EVENT_BLOCK_CLASS =
+  "border-violet-500 bg-[repeating-linear-gradient(135deg,oklch(0.95_0.03_295)_0_6px,oklch(0.92_0.045_295)_6px_12px)] text-violet-950 hover:brightness-95";
+
 // Pagos pendientes: en rojo, por encima de cualquier otro color.
 const ALERT_BLOCK_CLASS = "border-destructive bg-destructive/15 text-foreground ring-1 ring-destructive/40 hover:bg-destructive/25";
 
@@ -36,10 +40,14 @@ function minutesOfDay(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-// Reparte las citas que se solapan en carriles para que no se tapen.
-function layoutDay(items: Appointment[]) {
-  const sorted = [...items].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-  const placed: { a: Appointment; lane: number; lanes: number }[] = [];
+// Lo que ocupa un hueco en la rejilla: una cita o un evento.
+type Slot = { kind: "cita"; a: Appointment } | { kind: "evento"; e: AgendaEvent };
+const slotTiming = (s: Slot) => (s.kind === "cita" ? s.a : s.e);
+
+// Reparte las citas y eventos que se solapan en carriles para que no se tapen.
+function layoutDay(items: Slot[]) {
+  const sorted = [...items].sort((x, y) => slotTiming(x).starts_at.localeCompare(slotTiming(y).starts_at));
+  const placed: { s: Slot; lane: number; lanes: number }[] = [];
   let group: typeof placed = [];
   let groupEnd = -1;
   const laneEnds: number[] = [];
@@ -52,15 +60,16 @@ function layoutDay(items: Appointment[]) {
     laneEnds.length = 0;
   };
 
-  for (const a of sorted) {
-    const start = minutesOfDay(new Date(a.starts_at));
-    const end = start + a.duration_minutes;
+  for (const s of sorted) {
+    const { starts_at, duration_minutes } = slotTiming(s);
+    const start = minutesOfDay(new Date(starts_at));
+    const end = start + duration_minutes;
     if (group.length && start >= groupEnd) flush();
     let lane = laneEnds.findIndex((e) => e <= start);
     if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = end;
     groupEnd = Math.max(groupEnd, end);
-    group.push({ a, lane, lanes: 1 });
+    group.push({ s, lane, lanes: 1 });
   }
   if (group.length) flush();
   return placed;
@@ -68,16 +77,20 @@ function layoutDay(items: Appointment[]) {
 
 export function WeekCalendar({
   appointments,
+  events = [],
   patientName,
   onSelect,
+  onSelectEvent,
   onCreate,
   alertFor,
   isPsicolink,
   onTogglePsicolink,
 }: {
   appointments: Appointment[];
+  events?: AgendaEvent[];
   patientName: (id: string) => string;
   onSelect: (a: Appointment) => void;
+  onSelectEvent?: (e: AgendaEvent) => void;
   onCreate: (date: Date, time: string) => void;
   alertFor?: (a: Appointment) => string | null;
   isPsicolink?: (day: Date) => boolean;
@@ -93,15 +106,17 @@ export function WeekCalendar({
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const weekEnd = addDays(weekStart, 7);
 
-  const inWeek = appointments.filter((a) => {
-    const d = new Date(a.starts_at);
+  const isInWeek = (iso: string) => {
+    const d = new Date(iso);
     return d >= weekStart && d < weekEnd;
-  });
+  };
+  const inWeek = appointments.filter((a) => isInWeek(a.starts_at));
+  const eventsInWeek = events.filter((e) => isInWeek(e.starts_at));
 
-  // Ampliar la franja horaria si alguna cita cae fuera de 8:00–21:00.
+  // Ampliar la franja horaria si alguna cita o evento cae fuera de 8:00–21:00.
   let startHour = DEFAULT_START;
   let endHour = DEFAULT_END;
-  for (const a of inWeek) {
+  for (const a of [...inWeek, ...eventsInWeek]) {
     const s = new Date(a.starts_at);
     startHour = Math.min(startHour, s.getHours());
     endHour = Math.max(endHour, Math.ceil((minutesOfDay(s) + a.duration_minutes) / 60));
@@ -198,7 +213,10 @@ export function WeekCalendar({
             </div>
 
             {days.map((day) => {
-              const dayItems = inWeek.filter((a) => isSameDay(new Date(a.starts_at), day));
+              const dayItems: Slot[] = [
+                ...inWeek.filter((a) => isSameDay(new Date(a.starts_at), day)).map((a) => ({ kind: "cita" as const, a })),
+                ...eventsInWeek.filter((e) => isSameDay(new Date(e.starts_at), day)).map((e) => ({ kind: "evento" as const, e })),
+              ];
               const showNow = isSameDay(day, now);
               const nowTop = ((minutesOfDay(now) - startHour * 60) / 60) * HOUR_PX;
               return (
@@ -211,7 +229,7 @@ export function WeekCalendar({
                   )}
                   style={{ height: gridHeight }}
                   onClick={(e) => handleEmptyClick(day, e)}
-                  title="Clic para crear una cita"
+                  title="Clic para añadir una cita o un evento"
                 >
                   {hours.map((h, i) => (
                     <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-border/70"
@@ -225,10 +243,45 @@ export function WeekCalendar({
                     </div>
                   )}
 
-                  {layoutDay(dayItems).map(({ a, lane, lanes }) => {
+                  {layoutDay(dayItems).map(({ s, lane, lanes }) => {
+                    const position = (startIso: string, minutes: number) => {
+                      const top = ((minutesOfDay(new Date(startIso)) - startHour * 60) / 60) * HOUR_PX;
+                      return {
+                        top: top + 1,
+                        height: Math.max((minutes / 60) * HOUR_PX - 2, 22),
+                        left: `calc(${(lane / lanes) * 100}% + 2px)`,
+                        width: `calc(${100 / lanes}% - 4px)`,
+                      };
+                    };
+                    if (s.kind === "evento") {
+                      const ev = s.e;
+                      const start = new Date(ev.starts_at);
+                      const end = new Date(start.getTime() + ev.duration_minutes * 60_000);
+                      return (
+                        <button
+                          key={`ev-${ev.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectEvent?.(ev);
+                          }}
+                          className={cn(
+                            "absolute z-10 overflow-hidden rounded-[6px] border-l-4 px-1.5 py-1 text-left text-xs leading-tight shadow-sm transition",
+                            EVENT_BLOCK_CLASS
+                          )}
+                          style={position(ev.starts_at, ev.duration_minutes)}
+                          title={[ev.title, `${format(start, "HH:mm")}–${format(end, "HH:mm")}`, "Evento"].join(" · ")}
+                        >
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide">Evento</span>
+                          <span className="block truncate font-medium">{ev.title}</span>
+                          <span className="block truncate opacity-80">
+                            {format(start, "HH:mm")}–{format(end, "HH:mm")}
+                          </span>
+                        </button>
+                      );
+                    }
+                    const a = s.a;
                     const start = new Date(a.starts_at);
-                    const top = ((minutesOfDay(start) - startHour * 60) / 60) * HOUR_PX;
-                    const height = Math.max((a.duration_minutes / 60) * HOUR_PX - 2, 22);
                     const isFirst = a.session_type === "primera" && a.status !== "cancelada";
                     const unpaid = isPendingPayment(a) && start.getTime() < now.getTime();
                     const alert = alertFor?.(a) ?? null;
@@ -247,12 +300,7 @@ export function WeekCalendar({
                           : isFirst && !a.paid_at ? FIRST_BLOCK_CLASS
                           : BLOCK_CLASS[a.status]
                         )}
-                        style={{
-                          top: top + 1,
-                          height,
-                          left: `calc(${(lane / lanes) * 100}% + 2px)`,
-                          width: `calc(${100 / lanes}% - 4px)`,
-                        }}
+                        style={position(a.starts_at, a.duration_minutes)}
                         title={[
                           patientName(a.patient_id),
                           format(start, "HH:mm"),
@@ -285,7 +333,7 @@ export function WeekCalendar({
         </div>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
-        Haz clic en un hueco para crear una cita a esa hora, o en una cita para editarla.
+        Haz clic en un hueco para añadir una cita o un evento a esa hora, o en uno ya creado para editarlo.
       </p>
     </div>
   );
