@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import type { Appointment, Bono, Invoice, InvoiceSettings } from "./supabase";
+import type { Appointment, Bono, Invoice, InvoiceSettings, PaymentMethod } from "./supabase";
 import { PAYMENT_METHOD_LABEL } from "./supabase";
 import { SESSION_TYPES } from "./tariffs";
 
@@ -12,6 +12,7 @@ export interface BillablePayment {
   label: string; // concepto
   date: string; // fecha del servicio (cita) o de venta (bono)
   paid_at: string;
+  method: PaymentMethod | null; // cómo se cobró, si consta
 }
 
 // Pagos cobrados sin factura. Con skipped = true, los marcados «no facturar»;
@@ -25,13 +26,13 @@ export function billablePayments(appointments: Appointment[], bonos: Bono[], inv
       .filter((a) => Boolean(a.invoice_skipped_at) === skipped)
       .map((a) => ({
         kind: "cita" as const, id: a.id, patient_id: a.patient_id, cents: a.price_cents,
-        label: SESSION_TYPES[a.session_type].label, date: a.starts_at, paid_at: a.paid_at!,
+        label: SESSION_TYPES[a.session_type].label, date: a.starts_at, paid_at: a.paid_at!, method: a.payment_method,
       })),
     ...bonos
       .filter((b) => b.paid_at && !invoicedBonos.has(b.id) && Boolean(b.invoice_skipped_at) === skipped)
       .map((b) => ({
         kind: "bono" as const, id: b.id, patient_id: b.patient_id, cents: b.price_cents,
-        label: `Bono ${b.sessions_total} sesiones`, date: b.created_at, paid_at: b.paid_at!,
+        label: `Bono ${b.sessions_total} sesiones`, date: b.created_at, paid_at: b.paid_at!, method: b.payment_method,
       })),
   ].sort((x, y) => x.paid_at.localeCompare(y.paid_at) || x.date.localeCompare(y.date));
 }
@@ -59,6 +60,7 @@ export const INVOICE_LOGO_PATH = "/images/simbolo-reloj-arena.png";
 // HTML de la factura con el mismo formato que las que ya emitía Silvia.
 export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
   const date = format(new Date(`${inv.issue_date}T12:00:00`), "dd/MM/yyyy");
+  const operationDate = inv.operation_date ? format(new Date(`${inv.operation_date}T12:00:00`), "dd/MM/yyyy") : null;
   const vat = Math.round((inv.unit_price_cents * inv.quantity * inv.vat_percent) / 100);
   const subtotal = inv.unit_price_cents * inv.quantity;
   const i = inv.issuer;
@@ -101,6 +103,7 @@ export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
         <div>Número #: ${esc(inv.code)}</div>
         <div>Fecha: ${date}</div>
         <div>Debido: ${date}</div>
+        ${operationDate ? `<div>Fecha de la operación (cobro): ${operationDate}</div>` : ""}
       </div>
     </div>
   </div>
