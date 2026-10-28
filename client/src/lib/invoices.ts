@@ -136,7 +136,7 @@ export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
     <div class="total"><span>Importe total</span><span>${money(inv.total_cents)}</span></div>
   </div>
   <div class="pay">
-    <div><strong>MÉTODO DE PAGO: ${esc(PAYMENT_METHOD_LABEL[inv.payment_method])}</strong></div>
+    ${inv.payment_method ? `<div><strong>MÉTODO DE PAGO: ${esc(PAYMENT_METHOD_LABEL[inv.payment_method])}</strong></div>` : ""}
     ${inv.payment_method === "transferencia" && i.bank_name ? `<div>Nombre del banco: ${esc(i.bank_name)}</div>` : ""}
     ${inv.payment_method === "transferencia" && i.bank_swift ? `<div>SWIFT/BIC: ${esc(i.bank_swift)}</div>` : ""}
   </div>

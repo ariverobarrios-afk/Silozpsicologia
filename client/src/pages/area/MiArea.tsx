@@ -1,15 +1,21 @@
 import { useEffect, useState } from "react";
+import { format } from "date-fns";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type Appointment, type Bono } from "@/lib/supabase";
-import { BONO, bonoRemaining } from "@/lib/tariffs";
+import { supabase, type Appointment, type Bono, type Invoice } from "@/lib/supabase";
+import { openInvoice } from "@/lib/invoices";
+import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { AppointmentItem } from "./AppointmentItem";
 import { AreaLayout, RequireRole } from "./AreaLayout";
+import { ShowMoreList } from "./ShowMoreList";
 
 function MisCitas() {
   const { profile } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
   const [bonos, setBonos] = useState<Bono[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -31,6 +37,13 @@ function MisCitas() {
       .eq("patient_id", profile.id)
       .order("created_at")
       .then(({ data }) => setBonos((data as Bono[]) ?? []));
+    // Sus facturas, de la más nueva a la más antigua por numeración.
+    supabase
+      .from("invoices")
+      .select("*")
+      .eq("patient_id", profile.id)
+      .order("number", { ascending: false })
+      .then(({ data }) => setInvoices((data as Invoice[]) ?? []));
   }, [profile]);
 
   const now = Date.now();
@@ -81,6 +94,31 @@ function MisCitas() {
             )}
           </section>
         </div>
+      )}
+      {invoices.length > 0 && (
+        <section className="mt-10 flex flex-col">
+          <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Mis facturas</h2>
+          <ShowMoreList className="divide-y divide-border rounded-2xl border border-border bg-card">
+            {invoices.map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{inv.code}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {format(new Date(`${inv.issue_date}T12:00:00`), "d/M/yyyy")} · {inv.description}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="font-medium text-foreground">{euros(inv.total_cents)}</span>
+                  <Button size="sm" variant="outline" onClick={() => openInvoice(inv)}
+                    aria-label={`Descargar factura ${inv.code}`}>
+                    <Download className="size-4" />
+                    Descargar
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ShowMoreList>
+        </section>
       )}
     </AreaLayout>
   );

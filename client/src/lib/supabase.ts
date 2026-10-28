@@ -130,9 +130,10 @@ export interface Invoice {
   unit_price_cents: number;
   vat_percent: number;
   total_cents: number;
-  payment_method: PaymentMethod;
+  payment_method: PaymentMethod | null; // null en facturas importadas sin ese dato
   appointment_id: string | null;
   bono_id: string | null;
+  imported: boolean; // emitida antes de la web (importada de la hoja de Silvia)
   created_at: string;
 }
 

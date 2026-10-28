@@ -729,6 +729,26 @@ create policy "agenda_events: admin borra"
 alter table public.profiles add column if not exists external_center text;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Facturas anteriores a la web (importadas de la hoja de Silvia) y acceso de
+-- los pacientes a sus facturas.
+--   · invoices.imported: no está ligada a una cita ni a un bono de la web y
+--     puede no tener método de pago.
+--   · Cada paciente (activo) puede leer sus propias facturas para descargarlas.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.invoices add column if not exists imported boolean not null default false;
+alter table public.invoices alter column payment_method drop not null;
+alter table public.invoices drop constraint if exists invoices_check;
+alter table public.invoices drop constraint if exists invoices_origen;
+alter table public.invoices add constraint invoices_origen
+  check (imported or ((appointment_id is null) <> (bono_id is null)));
+
+drop policy if exists "invoices: admin lee" on public.invoices;
+drop policy if exists "invoices: paciente ve las suyas, admin todas" on public.invoices;
+create policy "invoices: paciente ve las suyas, admin todas"
+  on public.invoices for select to authenticated
+  using ((patient_id = auth.uid() and public.is_active()) or public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"
