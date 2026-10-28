@@ -33,10 +33,11 @@ export interface Profile {
   id: string;
   role: Role;
   full_name: string;
-  email: string;
+  email: string; // '' si no tenemos su email
   phone: string | null;
   active: boolean;
   process_type: ProcessType | null;
+  invited_at: string | null; // null = nunca se le ha enviado la invitación
   created_at: string;
 }
 

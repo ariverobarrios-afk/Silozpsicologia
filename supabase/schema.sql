@@ -342,6 +342,87 @@ create policy "agenda_days: admin modifica"
   on public.agenda_days for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Pacientes sin acceso: Silvia puede dar de alta pacientes sin email (sin
+-- cuenta en Auth) y gestionar su agenda igual. Si más adelante les invita, la
+-- nueva cuenta se enlaza con su ficha y conserva citas, bonos y facturas.
+--   · profiles.invited_at: cuándo se envió la invitación (null = nunca).
+--   · El id del perfil ya no tiene que existir en auth.users; al invitar se
+--     cambia por el de la nueva cuenta (ON UPDATE CASCADE en las tablas hijas).
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.profiles drop constraint if exists profiles_id_fkey;
+alter table public.profiles alter column id set default gen_random_uuid();
+alter table public.profiles add column if not exists invited_at timestamptz;
+
+-- Los perfiles con cuenta ya creada estaban invitados.
+update public.profiles p
+   set invited_at = coalesce(u.invited_at, u.created_at)
+  from auth.users u
+ where u.id = p.id and p.role = 'patient' and p.invited_at is null;
+
+-- Primero bonos y luego citas: las cascadas se ejecutan en orden de creación
+-- y check_bono_usage exige que bono y cita sean del mismo paciente.
+alter table public.bonos drop constraint if exists bonos_patient_id_fkey;
+alter table public.bonos add constraint bonos_patient_id_fkey
+  foreign key (patient_id) references public.profiles (id) on delete cascade on update cascade;
+alter table public.appointments drop constraint if exists appointments_patient_id_fkey;
+alter table public.appointments add constraint appointments_patient_id_fkey
+  foreign key (patient_id) references public.profiles (id) on delete cascade on update cascade;
+do $do$
+begin
+  if to_regclass('public.invoices') is not null then
+    alter table public.invoices drop constraint if exists invoices_patient_id_fkey;
+    alter table public.invoices add constraint invoices_patient_id_fkey
+      foreign key (patient_id) references public.profiles (id) on delete restrict on update cascade;
+  end if;
+end
+$do$;
+
+-- Al crear la cuenta: si la invitación viene de una ficha ya existente
+-- (metadato profile_id, que solo pone api/invite-patient.ts con la clave
+-- secreta) y la ficha tiene ese mismo email, se enlaza; si no, perfil nuevo.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  pid uuid;
+begin
+  begin
+    pid := nullif(new.raw_user_meta_data ->> 'profile_id', '')::uuid;
+  exception when invalid_text_representation then
+    pid := null;
+  end;
+
+  if pid is not null then
+    update public.profiles p
+       set id = new.id, email = coalesce(new.email, ''), invited_at = now()
+     where p.id = pid
+       and p.role = 'patient'
+       and lower(p.email) = lower(coalesce(new.email, ''))
+       and not exists (select 1 from auth.users u where u.id = pid);
+    if found then
+      return new;
+    end if;
+  end if;
+
+  insert into public.profiles (id, email, full_name, phone, invited_at)
+  values (
+    new.id,
+    coalesce(new.email, ''),
+    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
+    nullif(new.raw_user_meta_data ->> 'phone', ''),
+    now()
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

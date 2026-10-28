@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, List, Pencil, UserPlus } from "lucide-react";
+import { CalendarDays, CalendarPlus, List, Mail, Pencil, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
@@ -44,6 +45,7 @@ function PanelTerapeuta() {
   const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteExisting, setInviteExisting] = useState<Profile | null>(null);
   const [bonos, setBonos] = useState<Bono[] | null>(null);
   // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
   const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
@@ -181,7 +183,7 @@ function PanelTerapeuta() {
           </div>
           {patients.length === 0 && (
             <p className="mb-6 text-muted-foreground">
-              Primero invita a un paciente desde la pestaña «Pacientes».
+              Primero da de alta a un paciente desde la pestaña «Pacientes».
             </p>
           )}
 
@@ -242,7 +244,7 @@ function PanelTerapeuta() {
           <div className="mb-6 flex justify-end">
             <Button onClick={() => setInviteOpen(true)} className="rounded-full">
               <UserPlus className="size-4" />
-              Invitar paciente
+              Nuevo paciente
             </Button>
           </div>
           {patients.length === 0 ? (
@@ -270,7 +272,7 @@ function PanelTerapeuta() {
                         {!p.active && <span className="ml-2 text-sm text-destructive">· desactivado</span>}
                       </p>
                       <p className="truncate text-sm text-muted-foreground">
-                        {p.email}{p.phone ? ` · ${p.phone}` : ""}
+                        {[p.email || "Sin email", p.phone].filter(Boolean).join(" · ")}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {own.length} {own.length === 1 ? "cita" : "citas"}
@@ -287,6 +289,11 @@ function PanelTerapeuta() {
                             ))}
                           </SelectContent>
                         </Select>
+                        {!p.invited_at && (
+                          <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">
+                            Sin invitación enviada
+                          </Badge>
+                        )}
                         {activeBono && (
                           <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                             Bono: quedan {bonoRemaining(activeBono, appointments)} de {activeBono.sessions_total}
@@ -309,6 +316,12 @@ function PanelTerapeuta() {
                       <Button variant="outline" size="sm" onClick={() => setSellBonoFor({ patientId: p.id })}>
                         Vender bono
                       </Button>
+                      {!p.invited_at && (
+                        <Button variant="outline" size="sm" onClick={() => setInviteExisting(p)}>
+                          <Mail className="size-4" />
+                          Enviar invitación
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
                         {p.active ? "Desactivar" : "Activar"}
                       </Button>
@@ -354,63 +367,80 @@ function PanelTerapeuta() {
           onSaved={() => { setSellBonoFor(null); reload(); }}
         />
       )}
-      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onInvited={reload} />
+      <NewPatientDialog open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reload} />
+      {inviteExisting && (
+        <SendInviteDialog
+          patient={inviteExisting}
+          onClose={() => setInviteExisting(null)}
+          onInvited={() => { setInviteExisting(null); reload(); }}
+        />
+      )}
     </AreaLayout>
   );
 }
 
-function InviteDialog({
+type InviteResponse = { success?: boolean; invited?: boolean; message?: string };
+
+async function callInviteApi(token: string | undefined, payload: Record<string, unknown>): Promise<InviteResponse | null> {
+  try {
+    const resp = await fetch("/api/invite-patient", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token ?? ""}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = (await resp.json().catch(() => ({}))) as InviteResponse;
+    return resp.ok && body.success ? body : { ...body, success: false };
+  } catch {
+    return null;
+  }
+}
+
+function NewPatientDialog({
   open,
   onOpenChange,
-  onInvited,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onInvited: () => void;
+  onCreated: () => void;
 }) {
   const { session } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [invite, setInvite] = useState(true);
   const [busy, setBusy] = useState(false);
+  const willInvite = Boolean(email.trim()) && invite;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    try {
-      const resp = await fetch("/api/invite-patient", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ fullName, email, phone }),
-      });
-      const body = (await resp.json().catch(() => ({}))) as { success?: boolean; message?: string };
-      if (!resp.ok || !body.success) {
-        toast.error(body.message || "No se pudo enviar la invitación.");
-        return;
-      }
-      toast.success(`Invitación enviada a ${email}.`);
-      setFullName("");
-      setEmail("");
-      setPhone("");
-      onOpenChange(false);
-      onInvited();
-    } catch {
-      toast.error("No se pudo enviar la invitación.");
-    } finally {
-      setBusy(false);
+    const body = await callInviteApi(session?.access_token, { fullName, email, phone, invite: willInvite });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo dar de alta al paciente.");
+      return;
     }
+    toast.success(body.invited ? `Invitación enviada a ${email.trim()}.` : `${fullName.trim()} dado de alta.`);
+    setFullName("");
+    setEmail("");
+    setPhone("");
+    setInvite(true);
+    onOpenChange(false);
+    onCreated();
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle>Invitar paciente</DialogTitle>
+          <DialogTitle>Nuevo paciente</DialogTitle>
           <DialogDescription>
-            Recibirá un email para crear su contraseña y acceder a sus citas.
+            Si tienes su email, puedes invitarle para que vea sus citas. Si no, se da de alta igualmente y
+            podrás invitarle más adelante.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
@@ -419,12 +449,71 @@ function InviteDialog({
             <Input id="inv-name" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="inv-email">Email</Label>
-            <Input id="inv-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Label htmlFor="inv-email">Email (opcional)</Label>
+            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="inv-phone">Teléfono (opcional)</Label>
             <Input id="inv-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          {email.trim() && (
+            <label className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
+              Enviar invitación al área privada
+              <Switch checked={invite} onCheckedChange={setInvite} />
+            </label>
+          )}
+          <DialogFooter>
+            <Button type="submit" disabled={busy} className="rounded-full">
+              {willInvite ? "Dar de alta y enviar invitación" : "Dar de alta"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SendInviteDialog({
+  patient,
+  onClose,
+  onInvited,
+}: {
+  patient: Profile;
+  onClose: () => void;
+  onInvited: () => void;
+}) {
+  const { session } = useAuth();
+  const [email, setEmail] = useState(patient.email);
+  const [busy, setBusy] = useState(false);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const body = await callInviteApi(session?.access_token, { profileId: patient.id, email });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo enviar la invitación.");
+      return;
+    }
+    toast.success(`Invitación enviada a ${email.trim()}.`);
+    onInvited();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Enviar invitación</DialogTitle>
+          <DialogDescription>
+            {patient.full_name || "El paciente"} recibirá un email para crear su contraseña y verá sus citas y
+            bonos.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-existing-email">Email</Label>
+            <Input id="inv-existing-email" type="email" required value={email}
+              onChange={(e) => setEmail(e.target.value)} />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={busy} className="rounded-full">Enviar invitación</Button>
