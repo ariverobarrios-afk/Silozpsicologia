@@ -52,8 +52,12 @@ function lines(text: string | null | undefined): string {
   return esc(text).split("\n").filter(Boolean).map((l) => `<div>${l}</div>`).join("");
 }
 
+// Símbolo de Siloz (el mismo que usa la web). La factura se abre en una
+// ventana en blanco, así que la ruta tiene que ser absoluta.
+export const INVOICE_LOGO_PATH = "/images/simbolo-reloj-arena.png";
+
 // HTML de la factura con el mismo formato que las que ya emitía Silvia.
-export function invoiceHtml(inv: Invoice): string {
+export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
   const date = format(new Date(`${inv.issue_date}T12:00:00`), "dd/MM/yyyy");
   const vat = Math.round((inv.unit_price_cents * inv.quantity * inv.vat_percent) / 100);
   const subtotal = inv.unit_price_cents * inv.quantity;
@@ -64,6 +68,9 @@ export function invoiceHtml(inv: Invoice): string {
   * { box-sizing: border-box; }
   body { font-family: Helvetica, Arial, sans-serif; color: #111; font-size: 11pt; margin: 0; }
   .page { max-width: 180mm; margin: 0 auto; padding: 8mm 0; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
+  .logo { height: 22mm; width: auto; margin-left: 12mm; }
+  .title { text-align: right; }
   h1 { font-size: 20pt; margin: 0 0 14px; }
   .meta div { margin: 2px 0; }
   .parties { display: flex; gap: 24px; margin: 30px 0 40px; }
@@ -80,17 +87,22 @@ export function invoiceHtml(inv: Invoice): string {
   .pay { margin-top: 30px; font-size: 10pt; }
   .pay div { margin: 3px 0; }
   .note { margin-top: 18px; font-size: 10pt; }
-  .toolbar { position: fixed; top: 10px; right: 10px; }
+  .toolbar { position: fixed; bottom: 16px; right: 16px; }
   .toolbar button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
   @media print { .toolbar { display: none; } .page { padding: 0; } }
 </style></head><body>
 <div class="toolbar"><button onclick="window.print()">Descargar / imprimir PDF</button></div>
 <div class="page">
-  <h1>Factura</h1>
-  <div class="meta">
-    <div>Número #: ${esc(inv.code)}</div>
-    <div>Fecha: ${date}</div>
-    <div>Debido: ${date}</div>
+  <div class="head">
+    ${logoUrl ? `<img class="logo" src="${esc(logoUrl)}" alt="Siloz Psicología">` : "<span></span>"}
+    <div class="title">
+      <h1>Factura</h1>
+      <div class="meta">
+        <div>Número #: ${esc(inv.code)}</div>
+        <div>Fecha: ${date}</div>
+        <div>Debido: ${date}</div>
+      </div>
+    </div>
   </div>
   <div class="parties">
     <div>
@@ -141,6 +153,6 @@ export function openInvoice(inv: Invoice): void {
     return;
   }
   w.document.open();
-  w.document.write(invoiceHtml(inv));
+  w.document.write(invoiceHtml(inv, `${window.location.origin}${INVOICE_LOGO_PATH}`));
   w.document.close();
 }
