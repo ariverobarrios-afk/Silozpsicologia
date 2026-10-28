@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, List, Mail, Pencil, UserPlus } from "lucide-react";
+import { CalendarDays, CalendarPlus, FileText, List, Mail, Pencil, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,12 +24,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type Appointment, type Bono, type ProcessType, type Profile } from "@/lib/supabase";
+import { supabase, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
+import { InvoicingSection, PatientDataDialog, PatientInvoicesDialog } from "./Invoicing";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
@@ -57,6 +58,10 @@ function PanelTerapeuta() {
   const [bonos, setBonos] = useState<Bono[] | null>(null);
   // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
   const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
+  const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
+  const [invoicesFor, setInvoicesFor] = useState<Profile | null>(null);
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
 
   const reload = useCallback(async () => {
@@ -73,7 +78,13 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
-    const { data: days } = await supabase.from("agenda_days").select("day, psicolink");
+    const [{ data: days }, { data: inv }, { data: settings }] = await Promise.all([
+      supabase.from("agenda_days").select("day, psicolink"),
+      supabase.from("invoices").select("*").order("number"),
+      supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
+    ]);
+    setInvoices((inv as Invoice[] | null) ?? []);
+    setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
     setPsicolinkDays(new Map(((days as AgendaDay[] | null) ?? []).map((d) => [d.day, d.psicolink])));
   }, []);
 
@@ -287,6 +298,7 @@ function PanelTerapeuta() {
                 const activeBono = bonos.find(
                   (b) => b.patient_id === p.id && bonoRemaining(b, appointments) > 0
                 );
+                const invoiceCount = invoices.filter((inv) => inv.patient_id === p.id).length;
                 const pendingCents =
                   own.filter((a) => isPendingPayment(a) && new Date(a.starts_at).getTime() <= now)
                     .reduce((sum, a) => sum + a.price_cents, 0) +
@@ -300,7 +312,7 @@ function PanelTerapeuta() {
                         {!p.active && <span className="ml-2 text-sm text-destructive">· desactivado</span>}
                       </p>
                       <p className="truncate text-sm text-muted-foreground">
-                        {[p.email || "Sin email", p.phone].filter(Boolean).join(" · ")}
+                        {[p.email || "Sin email", p.phone, p.tax_id].filter(Boolean).join(" · ")}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {own.length} {own.length === 1 ? "cita" : "citas"}
@@ -350,6 +362,13 @@ function PanelTerapeuta() {
                           Enviar invitación
                         </Button>
                       )}
+                      <Button variant="outline" size="sm" onClick={() => setEditingPatient(p)}>
+                        Datos fiscales
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setInvoicesFor(p)}>
+                        <FileText className="size-4" />
+                        Facturas{invoiceCount > 0 && ` (${invoiceCount})`}
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
                         {p.active ? "Desactivar" : "Activar"}
                       </Button>
@@ -369,6 +388,17 @@ function PanelTerapeuta() {
             patientName={patientName}
             onChanged={reload}
             onSellBono={(patientId) => setSellBonoFor({ patientId })}
+            invoicing={
+              <InvoicingSection
+                patients={patients}
+                appointments={appointments}
+                bonos={bonos}
+                invoices={invoices}
+                settings={invoiceSettings}
+                patientName={patientName}
+                onChanged={reload}
+              />
+            }
           />
         </TabsContent>
       </Tabs>
@@ -386,6 +416,16 @@ function PanelTerapeuta() {
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload(); }}
         />
+      )}
+      {editingPatient && (
+        <PatientDataDialog
+          patient={editingPatient}
+          onClose={() => setEditingPatient(null)}
+          onSaved={() => { setEditingPatient(null); reload(); }}
+        />
+      )}
+      {invoicesFor && (
+        <PatientInvoicesDialog patient={invoicesFor} invoices={invoices} onClose={() => setInvoicesFor(null)} />
       )}
       {sellBonoFor && (
         <BonoDialog

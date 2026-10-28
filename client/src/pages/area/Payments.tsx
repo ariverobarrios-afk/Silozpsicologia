@@ -1,7 +1,7 @@
-import { Children, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronDown, ChevronUp, Ticket } from "lucide-react";
+import { Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { supabase, type Appointment, type Bono, type Profile } from "@/lib/supab
 import { BONO, SESSION_TYPES, bonoUsed, euros, isPendingPayment } from "@/lib/tariffs";
 import { FIRST_SESSION_CLASS } from "./AppointmentItem";
 import { formatDayTitle, formatTime } from "./format";
+import { ShowMoreList } from "./ShowMoreList";
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -37,27 +38,6 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
       <p className="mt-1 font-serif text-2xl font-semibold text-foreground">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
-  );
-}
-
-// Lista que enseña solo los primeros registros y despliega el resto a
-// demanda, para que la pestaña no se llene de ruido.
-const VISIBLE_ROWS = 5;
-
-function ShowMoreList({ className, children }: { className: string; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false);
-  const items = Children.toArray(children);
-  const hidden = items.length - VISIBLE_ROWS;
-  return (
-    <>
-      <ul className={className}>{expanded ? items : items.slice(0, VISIBLE_ROWS)}</ul>
-      {hidden > 0 && (
-        <Button variant="ghost" size="sm" className="mt-2 self-center" onClick={() => setExpanded(!expanded)}>
-          {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          {expanded ? "Ver menos" : `Ver ${hidden} más`}
-        </Button>
-      )}
-    </>
   );
 }
 
@@ -92,6 +72,7 @@ export function PaymentsTab({
   patientName,
   onChanged,
   onSellBono,
+  invoicing,
 }: {
   patients: Profile[];
   appointments: Appointment[];
@@ -99,6 +80,7 @@ export function PaymentsTab({
   patientName: (id: string) => string;
   onChanged: () => void;
   onSellBono: (patientId?: string) => void;
+  invoicing: ReactNode; // contenido de la pestaña «Facturas»
 }) {
   const now = new Date();
   const pending = appointments.filter(isPendingPayment);
@@ -162,13 +144,13 @@ export function PaymentsTab({
 
   const setBonoPaid = async (b: Bono, paid: boolean) => {
     const { error } = await supabase!.from("bonos").update({ paid_at: paid ? new Date().toISOString() : null }).eq("id", b.id);
-    if (error) toast.error("No se pudo actualizar el bono.");
+    if (error) toast.error(/facturad/i.test(error.message) ? error.message : "No se pudo actualizar el bono.");
     else onChanged();
   };
 
   const deleteBono = async (b: Bono) => {
     const { error } = await supabase!.from("bonos").delete().eq("id", b.id);
-    if (error) toast.error("No se puede borrar: el bono ya tiene sesiones.");
+    if (error) toast.error(/invoices/i.test(error.message) ? "No se puede borrar: el bono tiene factura." : "No se puede borrar: el bono ya tiene sesiones.");
     else {
       toast.success("Bono borrado.");
       onChanged();
@@ -186,6 +168,7 @@ export function PaymentsTab({
           Pendientes de cobro{pendingCount > 0 ? ` (${pendingCount})` : ""}
         </TabsTrigger>
         <TabsTrigger value="bonos">Bonos</TabsTrigger>
+        <TabsTrigger value="facturas">Facturas</TabsTrigger>
       </TabsList>
 
       <TabsContent value="contabilidad" className="flex flex-col">
@@ -330,6 +313,8 @@ export function PaymentsTab({
           </ShowMoreList>
         )}
       </TabsContent>
+
+      <TabsContent value="facturas">{invoicing}</TabsContent>
     </Tabs>
   );
 }
