@@ -36,11 +36,19 @@ import { formatDay, formatTime } from "./format";
 
 const ALL = "todos";
 
+type PatientStatusFilter = "activos" | "inactivos" | "todos";
+const PATIENT_STATUS_LABEL: Record<PatientStatusFilter, string> = {
+  activos: "Activos",
+  inactivos: "Inactivos",
+  todos: "Todos",
+};
+
 function PanelTerapeuta() {
   const [patients, setPatients] = useState<Profile[] | null>(null);
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
   const [tab, setTab] = useState("agenda");
   const [filter, setFilter] = useState<string>(ALL);
+  const [patientStatus, setPatientStatus] = useState<PatientStatusFilter>("activos");
   const [editing, setEditing] = useState<Appointment | "new" | null>(null);
   const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
   const [view, setView] = useState<"calendario" | "lista">("calendario");
@@ -91,6 +99,10 @@ function PanelTerapeuta() {
     const map = new Map((patients ?? []).map((p) => [p.id, p.full_name || p.email]));
     return (id: string) => map.get(id) ?? "Paciente";
   }, [patients]);
+
+  const listedPatients = (patients ?? []).filter((p) =>
+    patientStatus === "todos" ? true : patientStatus === "activos" ? p.active : !p.active
+  );
 
   const now = Date.now();
   const visible = (appointments ?? []).filter((a) => filter === ALL || a.patient_id === filter);
@@ -144,7 +156,7 @@ function PanelTerapeuta() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
-          <TabsTrigger value="pacientes">Pacientes ({patients.length})</TabsTrigger>
+          <TabsTrigger value="pacientes">Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
           <TabsTrigger value="pagos">Pagos</TabsTrigger>
         </TabsList>
 
@@ -241,17 +253,33 @@ function PanelTerapeuta() {
         </TabsContent>
 
         <TabsContent value="pacientes">
-          <div className="mb-6 flex justify-end">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Select value={patientStatus} onValueChange={(v) => setPatientStatus(v as PatientStatusFilter)}>
+              <SelectTrigger className="w-full sm:w-48" aria-label="Mostrar pacientes">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(PATIENT_STATUS_LABEL) as PatientStatusFilter[]).map((k) => (
+                  <SelectItem key={k} value={k}>{PATIENT_STATUS_LABEL[k]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={() => setInviteOpen(true)} className="rounded-full">
               <UserPlus className="size-4" />
               Nuevo paciente
             </Button>
           </div>
-          {patients.length === 0 ? (
-            <p className="text-muted-foreground">Todavía no hay pacientes.</p>
+          {listedPatients.length === 0 ? (
+            <p className="text-muted-foreground">
+              {patients.length === 0
+                ? "Todavía no hay pacientes."
+                : patientStatus === "inactivos"
+                  ? "No hay pacientes inactivos."
+                  : "No hay pacientes activos."}
+            </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {patients.map((p) => {
+              {listedPatients.map((p) => {
                 const own = appointments.filter((a) => a.patient_id === p.id);
                 const next = own.find(
                   (a) => new Date(a.starts_at).getTime() >= now && a.status === "programada"
