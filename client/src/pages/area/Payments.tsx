@@ -30,6 +30,7 @@ import { BONO, SESSION_TYPES, bonoUsed, euros, isPendingPayment } from "@/lib/ta
 import { FIRST_SESSION_CLASS } from "./AppointmentItem";
 import { formatDayTitle, formatTime } from "./format";
 import { ShowMoreList } from "./ShowMoreList";
+import { PaymentDialog, PaymentFields, newPaymentInput, paymentInputError, registerPayment, type PaymentInput } from "./PaymentDialog";
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -133,17 +134,28 @@ export function PaymentsTab({
   const periodBonos = periodPayments.filter((p) => p.kind === "bono");
   const periodSessionsTotal = periodTotal - periodBonos.reduce((s, p) => s + p.cents, 0);
 
-  const markAppointmentPaid = async (a: Appointment) => {
-    const { error } = await supabase!.from("appointments").update({ paid_at: new Date().toISOString() }).eq("id", a.id);
-    if (error) toast.error("No se pudo marcar como pagada.");
-    else {
-      toast.success("Cita marcada como pagada.");
-      onChanged();
-    }
-  };
+  // Marcar como pagado abre el cuadro de cobro (fecha, método y factura).
+  const [paying, setPaying] = useState<{ kind: "cita" | "bono"; id: string; title: string; description: string } | null>(null);
+
+  const markAppointmentPaid = (a: Appointment) =>
+    setPaying({
+      kind: "cita",
+      id: a.id,
+      title: "Registrar pago de la sesión",
+      description: `${patientName(a.patient_id)} · ${SESSION_TYPES[a.session_type].label} del ${formatDayTitle(a.starts_at).toLowerCase()} · ${euros(a.price_cents)}`,
+    });
 
   const setBonoPaid = async (b: Bono, paid: boolean) => {
-    const { error } = await supabase!.from("bonos").update({ paid_at: paid ? new Date().toISOString() : null }).eq("id", b.id);
+    if (paid) {
+      setPaying({
+        kind: "bono",
+        id: b.id,
+        title: "Registrar pago del bono",
+        description: `${patientName(b.patient_id)} · ${BONO.label} · ${euros(b.price_cents)}`,
+      });
+      return;
+    }
+    const { error } = await supabase!.from("bonos").update({ paid_at: null, payment_method: null }).eq("id", b.id);
     if (error) toast.error(/facturad/i.test(error.message) ? error.message : "No se pudo actualizar el bono.");
     else onChanged();
   };
@@ -315,6 +327,17 @@ export function PaymentsTab({
       </TabsContent>
 
       <TabsContent value="facturas">{invoicing}</TabsContent>
+
+      {paying && (
+        <PaymentDialog
+          kind={paying.kind}
+          id={paying.id}
+          title={paying.title}
+          description={paying.description}
+          onClose={() => setPaying(null)}
+          onPaid={() => { setPaying(null); onChanged(); }}
+        />
+      )}
     </Tabs>
   );
 }
@@ -332,6 +355,7 @@ export function BonoDialog({
 }) {
   const [patientId, setPatientId] = useState(defaultPatientId ?? "");
   const [paid, setPaid] = useState(false);
+  const [payment, setPayment] = useState<PaymentInput>(newPaymentInput);
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
@@ -340,19 +364,25 @@ export function BonoDialog({
       toast.error("Elige un paciente.");
       return;
     }
+    const payErr = paid ? paymentInputError(payment) : null;
+    if (payErr) {
+      toast.error(payErr);
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase!.from("bonos").insert({
-      patient_id: patientId,
-      sessions_total: BONO.sessions,
-      price_cents: BONO.price_cents,
-      paid_at: paid ? new Date().toISOString() : null,
-    });
-    setBusy(false);
-    if (error) {
+    const { data, error } = await supabase!
+      .from("bonos")
+      .insert({ patient_id: patientId, sessions_total: BONO.sessions, price_cents: BONO.price_cents })
+      .select("id")
+      .single();
+    if (error || !data) {
+      setBusy(false);
       toast.error("No se pudo registrar el bono.");
       return;
     }
-    toast.success("Bono registrado. Las próximas citas se descontarán de él.");
+    if (paid) await registerPayment("bono", (data as { id: string }).id, payment);
+    else toast.success("Bono registrado. Las próximas citas se descontarán de él.");
+    setBusy(false);
     onSaved();
   };
 
@@ -382,6 +412,7 @@ export function BonoDialog({
             Ya está pagado
             <Switch checked={paid} onCheckedChange={setPaid} />
           </label>
+          {paid && <PaymentFields value={payment} onChange={setPayment} idPrefix="bono-pay" />}
           <DialogFooter>
             <Button type="submit" disabled={busy} className="rounded-full">Registrar bono</Button>
           </DialogFooter>

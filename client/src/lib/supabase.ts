@@ -61,6 +61,7 @@ export interface Appointment {
   paid_at: string | null; // null = pendiente de pago
   bono_id: string | null;
   invoice_skipped_at: string | null; // marcado «no facturar»
+  payment_method: PaymentMethod | null; // cómo se cobró (null si no consta)
 }
 
 export interface Bono {
@@ -70,6 +71,7 @@ export interface Bono {
   price_cents: number;
   paid_at: string | null;
   invoice_skipped_at: string | null; // marcado «no facturar»
+  payment_method: PaymentMethod | null; // cómo se cobró (null si no consta)
   created_at: string;
 }
 
@@ -130,9 +132,11 @@ export interface Invoice {
   unit_price_cents: number;
   vat_percent: number;
   total_cents: number;
-  payment_method: PaymentMethod;
+  payment_method: PaymentMethod | null; // null en facturas importadas sin ese dato
   appointment_id: string | null;
   bono_id: string | null;
+  imported: boolean; // emitida antes de la web (importada de la hoja de Silvia)
+  operation_date: string | null; // fecha del cobro (yyyy-MM-dd), si consta
   created_at: string;
 }
 

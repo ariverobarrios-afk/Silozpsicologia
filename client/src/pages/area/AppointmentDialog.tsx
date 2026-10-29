@@ -37,6 +37,7 @@ import {
 } from "@/lib/supabase";
 import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoSessionNumber, euros, overdueDebts } from "@/lib/tariffs";
 import { fromInputs, toTimeInput } from "./format";
+import { PaymentDialog, PaymentFields, newPaymentInput, paymentInputError, registerPayment, type PaymentInput } from "./PaymentDialog";
 
 // Las sesiones solo empiezan en punto o a y media.
 export const TIME_SLOTS = Array.from({ length: 32 }, (_, i) => {
@@ -86,6 +87,10 @@ export function AppointmentDialog({
   const [busy, setBusy] = useState(false);
   const [sellingBono, setSellingBono] = useState(false);
   const [bonoPaidNow, setBonoPaidNow] = useState(false);
+  // Datos del cobro cuando se marca como pagada aquí (esta cita o el bono vendido).
+  const [payment, setPayment] = useState<PaymentInput>(newPaymentInput);
+  const [bonoPayment, setBonoPayment] = useState<PaymentInput>(newPaymentInput);
+  const [payingDebt, setPayingDebt] = useState<{ kind: "bono" | "cita"; id: string; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const patient = patients.find((p) => p.id === patientId);
@@ -172,18 +177,15 @@ export function AppointmentDialog({
     ? overdueDebts(patientId, appointments, bonos).filter((d) => d.id !== appointment?.id)
     : [];
 
-  const markDebtPaid = async (kind: "bono" | "cita", id: string) => {
-    const table = kind === "bono" ? "bonos" : "appointments";
-    const { error } = await supabase!.from(table).update({ paid_at: new Date().toISOString() }).eq("id", id);
-    if (error) toast.error("No se pudo marcar como pagado.");
-    else {
-      toast.success(kind === "bono" ? "Bono marcado como pagado." : "Sesión marcada como pagada.");
-      await onRefresh();
-    }
-  };
+  const markDebtPaid = (kind: "bono" | "cita", id: string, label: string) => setPayingDebt({ kind, id, label });
 
   // Vender un bono al paciente y descontar de él esta misma cita.
   const sellBono = async () => {
+    const payErr = bonoPaidNow ? paymentInputError(bonoPayment) : null;
+    if (payErr) {
+      toast.error(payErr);
+      return;
+    }
     setBusy(true);
     const { data, error } = await supabase!
       .from("bonos")
@@ -191,7 +193,6 @@ export function AppointmentDialog({
         patient_id: patientId,
         sessions_total: BONO.sessions,
         price_cents: BONO.price_cents,
-        paid_at: bonoPaidNow ? new Date().toISOString() : null,
       })
       .select()
       .single();
@@ -200,6 +201,7 @@ export function AppointmentDialog({
       toast.error("No se pudo registrar el bono.");
       return;
     }
+    if (bonoPaidNow) await registerPayment("bono", (data as Bono).id, bonoPayment);
     await onRefresh();
     setBusy(false);
     setSellingBono(false);
@@ -227,6 +229,10 @@ export function AppointmentDialog({
     : appointment && appointment.session_type === sessionType ? appointment.price_cents
     : SESSION_TYPES[sessionType].price_cents;
 
+  // Se marca como pagada ahora (antes no lo estaba): hay que pedir fecha y método.
+  const newlyPaid = paid && sessionType !== "" && sessionType !== "bono" && !appointment?.paid_at;
+  const canInvoiceThis = status !== "cancelada" && price > 0;
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!patientId || !date || !time || !sessionType) {
@@ -239,6 +245,11 @@ export function AppointmentDialog({
     }
     if (sessionType === "bono" && !bonoId) {
       toast.error("Elige el bono del que se descuenta la sesión.");
+      return;
+    }
+    const payErr = newlyPaid ? paymentInputError(payment) : null;
+    if (payErr) {
+      toast.error(payErr);
       return;
     }
     setBusy(true);
@@ -261,12 +272,17 @@ export function AppointmentDialog({
       session_type: sessionType,
       price_cents: isBono ? 0 : price,
       bono_id: isBono ? bonoId : null,
-      // Conserva la fecha de cobro original si ya estaba pagada.
-      paid_at: isBono || !paid ? null : appointment?.paid_at ?? new Date().toISOString(),
+      // Conserva el cobro original si ya estaba pagada; un cobro nuevo se
+      // registra después con su fecha y método (y su factura).
+      paid_at: isBono || !paid ? null : appointment?.paid_at ?? null,
+      ...(isBono || !paid ? { payment_method: null } : {}),
     };
-    const { error } = appointment
-      ? await supabase!.from("appointments").update(row).eq("id", appointment.id)
-      : await supabase!.from("appointments").insert(row);
+    const { data: saved, error } = appointment
+      ? await supabase!.from("appointments").update(row).eq("id", appointment.id).select("id").single()
+      : await supabase!.from("appointments").insert(row).select("id").single();
+    if (!error && newlyPaid && saved) {
+      await registerPayment("cita", (saved as { id: string }).id, { ...payment, invoice: payment.invoice && canInvoiceThis });
+    }
     setBusy(false);
     if (error) {
       toast.error(
@@ -344,7 +360,8 @@ export function AppointmentDialog({
                       : `Sesión del ${format(new Date(d.date), "d/M/yyyy")}`} · {euros(d.cents)}
                   </span>
                   <Button type="button" size="sm" variant="outline" className="h-7"
-                    disabled={busy} onClick={() => markDebtPaid(d.kind, d.id)}>
+                    disabled={busy} onClick={() => markDebtPaid(d.kind, d.id,
+                      `${d.kind === "bono" ? BONO.label : `Sesión del ${format(new Date(d.date), "d/M/yyyy")}`} · ${euros(d.cents)}`)}>
                     Marcar pagado
                   </Button>
                 </li>
@@ -507,6 +524,7 @@ export function AppointmentDialog({
                   Ya está pagado
                   <Switch checked={bonoPaidNow} onCheckedChange={setBonoPaidNow} />
                 </label>
+                {bonoPaidNow && <PaymentFields value={bonoPayment} onChange={setBonoPayment} idPrefix="sell-bono-pay" />}
                 <div className="flex justify-end gap-2">
                   <Button type="button" size="sm" variant="ghost" onClick={() => setSellingBono(false)}>Cancelar</Button>
                   <Button type="button" size="sm" disabled={busy} onClick={sellBono}>Registrar bono</Button>
@@ -544,6 +562,9 @@ export function AppointmentDialog({
               </label>
             </div>
           )}
+          {newlyPaid && (
+            <PaymentFields value={payment} onChange={setPayment} canInvoice={canInvoiceThis} idPrefix="appt-pay" />
+          )}
 
           <div className="flex flex-col gap-2">
             <Label>Estado</Label>
@@ -567,6 +588,16 @@ export function AppointmentDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      {payingDebt && (
+        <PaymentDialog
+          kind={payingDebt.kind}
+          id={payingDebt.id}
+          title="Registrar pago pendiente"
+          description={`${patient?.full_name || patient?.email || "Paciente"} · ${payingDebt.label}`}
+          onClose={() => setPayingDebt(null)}
+          onPaid={async () => { setPayingDebt(null); await onRefresh(); }}
+        />
+      )}
     </Dialog>
   );
 }

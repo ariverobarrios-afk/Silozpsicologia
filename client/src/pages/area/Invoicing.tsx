@@ -283,7 +283,7 @@ export function InvoicingSection({
   );
 }
 
-function IssueDialog({
+export function IssueDialog({
   items,
   settings,
   patients,
@@ -300,8 +300,12 @@ function IssueDialog({
 }) {
   const minDate = settings.last_date ?? undefined;
   const max = todayKey();
-  const [date, setDate] = useState(minDate && minDate > max ? minDate : max);
-  const [method, setMethod] = useState<PaymentMethod>("transferencia");
+  // Por defecto: la fecha del pago (la más reciente si son varios), pero nunca
+  // anterior a la última factura; y el método con el que se cobró, si consta.
+  const paidKey = items.map((p) => format(new Date(p.paid_at), "yyyy-MM-dd")).sort().at(-1) ?? max;
+  const [date, setDate] = useState(minDate && minDate > paidKey ? minDate : paidKey > max ? max : paidKey);
+  const methods = Array.from(new Set(items.map((p) => p.method)));
+  const [method, setMethod] = useState<PaymentMethod>(methods.length === 1 && methods[0] ? methods[0] : "transferencia");
   const [busy, setBusy] = useState(false);
   const missingTax = items.filter((p) => !patients.find((x) => x.id === p.patient_id)?.tax_id);
   const total = items.reduce((s, p) => s + p.cents, 0);
@@ -605,7 +609,7 @@ export function PatientInvoicesDialog({
           <DialogTitle>Facturas de {patient.full_name || patient.email}</DialogTitle>
           <DialogDescription>
             {own.length === 0
-              ? "Todavía no tiene facturas emitidas desde la web."
+              ? "Todavía no tiene facturas."
               : `${own.length} ${own.length === 1 ? "factura" : "facturas"} · ${euros(total)} en total`}
           </DialogDescription>
         </DialogHeader>
@@ -616,7 +620,7 @@ export function PatientInvoicesDialog({
                 <div className="min-w-0">
                   <p className="font-medium text-foreground">{inv.code}</p>
                   <p className="text-sm text-muted-foreground">
-                    {shortDate(inv.issue_date)} · {inv.description} · {PAYMENT_METHOD_LABEL[inv.payment_method]}
+                    {[shortDate(inv.issue_date), inv.description, inv.payment_method && PAYMENT_METHOD_LABEL[inv.payment_method]].filter(Boolean).join(" · ")}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

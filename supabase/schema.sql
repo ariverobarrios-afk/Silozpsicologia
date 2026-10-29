@@ -437,6 +437,10 @@ create trigger invoice_settings_guard
   before update on public.invoice_settings
   for each row execute function public.guard_invoice_settings();
 
+-- Fecha de la operación (el cobro): puede ser anterior a la de la factura si
+-- ya había facturas con fecha posterior.
+alter table public.invoices add column if not exists operation_date date;
+
 -- Emite facturas de pagos cobrados. p_items: [{"kind":"cita"|"bono","id":"uuid"}, …]
 -- en el orden de numeración. El importe y el concepto salen de la base de datos.
 create or replace function public.issue_invoices(p_items jsonb, p_issue_date date, p_payment_method text)
@@ -455,6 +459,7 @@ declare
   v_amount integer;
   v_appt uuid;
   v_bono uuid;
+  v_paid date;
   v_prof public.profiles%rowtype;
   v_number integer;
   v_max_date date;
@@ -507,6 +512,7 @@ begin
         raise exception 'Una de las citas ya tiene factura';
       end if;
       v_patient := a.patient_id;
+      v_paid := (a.paid_at at time zone 'Europe/Madrid')::date;
       v_amount := a.price_cents;
       v_appt := v_id;
       v_desc := case a.session_type
@@ -523,6 +529,7 @@ begin
         raise exception 'Uno de los bonos ya tiene factura';
       end if;
       v_patient := b.patient_id;
+      v_paid := (b.paid_at at time zone 'Europe/Madrid')::date;
       v_amount := b.price_cents;
       v_bono := v_id;
       v_desc := 'Bono ' || b.sessions_total || ' sesiones de psicología sanitaria';
@@ -536,7 +543,7 @@ begin
       series, number, code, issue_date, patient_id,
       recipient_name, recipient_tax_id, recipient_address, issuer,
       description, quantity, unit_price_cents, vat_percent, total_cents,
-      payment_method, appointment_id, bono_id
+      payment_method, appointment_id, bono_id, operation_date
     ) values (
       s.series, v_number, s.series || lpad(v_number::text, s.number_digits, '0'), p_issue_date, v_patient,
       coalesce(nullif(v_prof.full_name, ''), v_prof.email), v_prof.tax_id, v_prof.address,
@@ -546,7 +553,7 @@ begin
         'bank_name', s.bank_name, 'bank_swift', s.bank_swift, 'exemption_note', s.exemption_note
       ),
       v_desc, 1, v_amount, 0, v_amount,
-      p_payment_method, v_appt, v_bono
+      p_payment_method, v_appt, v_bono, v_paid
     ) returning * into inv;
 
     return next inv;
@@ -727,6 +734,91 @@ create policy "agenda_events: admin borra"
 -- Preparado para pacientes que no son propios de Silvia sino de otro centro o
 -- empresa (p. ej. Psicolink). null = paciente propio. Aún no se usa en la web.
 alter table public.profiles add column if not exists external_center text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Facturas anteriores a la web (importadas de la hoja de Silvia) y acceso de
+-- los pacientes a sus facturas.
+--   · invoices.imported: no está ligada a una cita ni a un bono de la web y
+--     puede no tener método de pago.
+--   · Cada paciente (activo) puede leer sus propias facturas para descargarlas.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.invoices add column if not exists imported boolean not null default false;
+alter table public.invoices alter column payment_method drop not null;
+alter table public.invoices drop constraint if exists invoices_check;
+alter table public.invoices drop constraint if exists invoices_origen;
+alter table public.invoices add constraint invoices_origen
+  check (imported or ((appointment_id is null) <> (bono_id is null)));
+
+drop policy if exists "invoices: admin lee" on public.invoices;
+drop policy if exists "invoices: paciente ve las suyas, admin todas" on public.invoices;
+create policy "invoices: paciente ve las suyas, admin todas"
+  on public.invoices for select to authenticated
+  using ((patient_id = auth.uid() and public.is_active()) or public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Registrar un cobro: fecha real del pago y método, y (si se pide) emitir su
+-- factura. La factura lleva la fecha del pago salvo que ya haya facturas con
+-- fecha posterior: entonces lleva la de la última, para que números y fechas
+-- sigan siendo correlativos.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.appointments add column if not exists payment_method text
+  check (payment_method in ('transferencia', 'bizum', 'efectivo', 'tarjeta'));
+alter table public.bonos add column if not exists payment_method text
+  check (payment_method in ('transferencia', 'bizum', 'efectivo', 'tarjeta'));
+
+create or replace function public.register_payment(
+  p_kind text, p_id uuid, p_paid_on date, p_method text, p_invoice boolean default true
+)
+returns public.invoices
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  s public.invoice_settings%rowtype;
+  v_max_date date;
+  v_date date;
+  inv public.invoices%rowtype;
+  today date := (now() at time zone 'Europe/Madrid')::date;
+  v_paid_at timestamptz := (p_paid_on + time '12:00') at time zone 'Europe/Madrid';
+begin
+  if not public.is_admin() then
+    raise exception 'No autorizado';
+  end if;
+  if p_method is null or p_method not in ('transferencia', 'bizum', 'efectivo', 'tarjeta') then
+    raise exception 'Elige el método de pago';
+  end if;
+  if p_paid_on is null or p_paid_on > today then
+    raise exception 'La fecha del pago no puede ser futura';
+  end if;
+
+  if p_kind = 'cita' then
+    update public.appointments set paid_at = v_paid_at, payment_method = p_method where id = p_id;
+  elsif p_kind = 'bono' then
+    update public.bonos set paid_at = v_paid_at, payment_method = p_method where id = p_id;
+  else
+    raise exception 'Tipo de pago no válido';
+  end if;
+  if not found then
+    raise exception 'Pago no encontrado';
+  end if;
+
+  if not p_invoice then
+    return null;
+  end if;
+
+  select * into s from public.invoice_settings where id = 1;
+  select max(issue_date) into v_max_date from public.invoices where series = s.series;
+  v_date := greatest(p_paid_on, coalesce(s.last_date, p_paid_on), coalesce(v_max_date, p_paid_on));
+
+  select * into inv
+    from public.issue_invoices(jsonb_build_array(jsonb_build_object('kind', p_kind, 'id', p_id)), v_date, p_method);
+  return inv;
+end;
+$fn$;
+
+revoke all on function public.register_payment(text, uuid, date, text, boolean) from public, anon;
+grant execute on function public.register_payment(text, uuid, date, text, boolean) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
