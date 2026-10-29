@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, FileText, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
+import { CalendarDays, CalendarPlus, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,8 @@ import { AppointmentDialog } from "./AppointmentDialog";
 import { EventDialog, NewEntryDialog } from "./EventDialog";
 import { AppointmentItem } from "./AppointmentItem";
 import { BonoDialog, PaymentsTab } from "./Payments";
-import { InvoicingSection, PatientDataDialog, PatientInvoicesDialog } from "./Invoicing";
+import { InvoicingSection, PatientDataDialog } from "./Invoicing";
+import { PatientProfile } from "./PatientProfile";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
@@ -66,7 +67,8 @@ function PanelTerapeuta() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
   const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
-  const [invoicesFor, setInvoicesFor] = useState<Profile | null>(null);
+  // Ficha de paciente abierta (va en la URL, #paciente/<id>, para que «atrás» funcione).
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
@@ -115,6 +117,25 @@ function PanelTerapeuta() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    const sync = () => {
+      const m = window.location.hash.match(/^#paciente\/([\w-]+)$/);
+      setProfileId(m ? m[1] : null);
+      if (m) setTab("pacientes");
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  const openProfile = (id: string) => {
+    window.location.hash = `paciente/${id}`;
+    window.scrollTo({ top: 0 });
+  };
+  const closeProfile = () => {
+    window.history.pushState(null, "", window.location.pathname + window.location.search);
+    setProfileId(null);
+  };
 
   const patientName = useMemo(() => {
     const map = new Map((patients ?? []).map((p) => [p.id, p.full_name || p.email]));
@@ -167,6 +188,8 @@ function PanelTerapeuta() {
     else reload();
   };
 
+  const profilePatient = profileId ? (patients ?? []).find((p) => p.id === profileId) ?? null : null;
+
   const alertFor = (a: Appointment) => paymentAlert(a, appointments ?? [], bonos ?? []);
 
   if (!patients || !appointments || !bonos) {
@@ -188,7 +211,7 @@ function PanelTerapeuta() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
-          <TabsTrigger value="pacientes">Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
+          <TabsTrigger value="pacientes" onClick={() => profileId && closeProfile()}>Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
           <TabsTrigger value="pagos">Pagos</TabsTrigger>
         </TabsList>
 
@@ -284,6 +307,24 @@ function PanelTerapeuta() {
         </TabsContent>
 
         <TabsContent value="pacientes">
+          {profilePatient ? (
+            <PatientProfile
+              patient={profilePatient}
+              appointments={appointments}
+              bonos={bonos}
+              invoices={invoices}
+              alertFor={alertFor}
+              onBack={closeProfile}
+              onNewAppointment={() => openNew(profilePatient.id)}
+              onEditAppointment={(a) => setEditing(a)}
+              onSellBono={() => setSellBonoFor({ patientId: profilePatient.id })}
+              onEditData={() => setEditingPatient(profilePatient)}
+              onInvite={() => setInviteExisting(profilePatient)}
+              onToggleActive={() => toggleActive(profilePatient)}
+              onSetProcess={(v) => setProcess(profilePatient, v)}
+              onChanged={reload}
+            />
+          ) : (<>
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Select value={patientStatus} onValueChange={(v) => setPatientStatus(v as PatientStatusFilter)}>
@@ -341,8 +382,8 @@ function PanelTerapeuta() {
                   bonos.filter((b) => b.patient_id === p.id && !b.paid_at).reduce((sum, b) => sum + b.price_cents, 0);
                 return (
                   <li key={p.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
+                    className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 md:flex-row md:items-center md:justify-between">
+                    <button type="button" className="min-w-0 text-left" onClick={() => openProfile(p.id)}>
                       <p className="font-medium text-foreground">
                         {p.full_name || "(sin nombre)"}
                         {!p.active && <span className="ml-2 text-sm text-destructive">· desactivado</span>}
@@ -354,17 +395,10 @@ function PanelTerapeuta() {
                         {own.length} {own.length === 1 ? "cita" : "citas"}
                         {next && ` · próxima: ${formatDay(next.starts_at)}, ${formatTime(next.starts_at)}`}
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Select value={p.process_type ?? ""} onValueChange={(v) => setProcess(p, v as ProcessType)}>
-                          <SelectTrigger size="sm" className="h-7 w-auto text-xs">
-                            <SelectValue placeholder="Proceso sin asignar" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(PROCESS_LABEL) as ProcessType[]).map((k) => (
-                              <SelectItem key={k} value={k}>{PROCESS_LABEL[k]}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <span className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="border-border text-muted-foreground">
+                          {p.process_type ? PROCESS_LABEL[p.process_type] : "Proceso sin asignar"}
+                        </Badge>
                         {!p.invited_at && (
                           <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">
                             Sin invitación enviada
@@ -380,33 +414,23 @@ function PanelTerapeuta() {
                             Pendiente {euros(pendingCents)}
                           </Badge>
                         )}
-                      </div>
-                    </div>
+                        {invoiceCount > 0 && (
+                          <Badge variant="outline" className="border-border text-muted-foreground">
+                            {invoiceCount} {invoiceCount === 1 ? "factura" : "facturas"}
+                          </Badge>
+                        )}
+                      </span>
+                    </button>
                     <div className="flex shrink-0 flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => { setFilter(p.id); setTab("agenda"); }}>
-                        Ver citas
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openNew(p.id)}>
-                        Nueva cita
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setSellBonoFor({ patientId: p.id })}>
-                        Vender bono
-                      </Button>
                       {!p.invited_at && (
                         <Button variant="outline" size="sm" onClick={() => setInviteExisting(p)}>
                           <Mail className="size-4" />
                           Enviar invitación
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" onClick={() => setEditingPatient(p)}>
-                        Datos fiscales
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setInvoicesFor(p)}>
-                        <FileText className="size-4" />
-                        Facturas{invoiceCount > 0 && ` (${invoiceCount})`}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>
-                        {p.active ? "Desactivar" : "Activar"}
+                      <Button size="sm" className="rounded-full" onClick={() => openProfile(p.id)}>
+                        Ver ficha
+                        <ChevronRight className="size-4" />
                       </Button>
                     </div>
                   </li>
@@ -414,6 +438,7 @@ function PanelTerapeuta() {
               })}
             </ul>
           )}
+          </>)}
         </TabsContent>
 
         <TabsContent value="pagos">
@@ -477,9 +502,6 @@ function PanelTerapeuta() {
           onClose={() => setEditingPatient(null)}
           onSaved={() => { setEditingPatient(null); reload(); }}
         />
-      )}
-      {invoicesFor && (
-        <PatientInvoicesDialog patient={invoicesFor} invoices={invoices} onClose={() => setInvoicesFor(null)} />
       )}
       {sellBonoFor && (
         <BonoDialog
