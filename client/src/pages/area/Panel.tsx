@@ -313,6 +313,7 @@ function PanelTerapeuta() {
               appointments={appointments}
               bonos={bonos}
               invoices={invoices}
+              invoiceSettings={invoiceSettings}
               alertFor={alertFor}
               onBack={closeProfile}
               onNewAppointment={() => openNew(profilePatient.id)}

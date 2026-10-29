@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { format } from "date-fns";
 import { ArrowLeft, CalendarPlus, FileText, IdCard, Mail, Pencil, Ticket } from "lucide-react";
+import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,8 +12,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PAYMENT_METHOD_LABEL, type Appointment, type Bono, type Invoice, type ProcessType, type Profile } from "@/lib/supabase";
-import { openInvoice } from "@/lib/invoices";
+import {
+  PAYMENT_METHOD_LABEL,
+  supabase,
+  type Appointment,
+  type Bono,
+  type Invoice,
+  type InvoiceSettings,
+  type ProcessType,
+  type Profile,
+} from "@/lib/supabase";
+import { billablePayments, invoiceCode, openInvoice, type BillablePayment } from "@/lib/invoices";
+import { IssueDialog } from "./Invoicing";
 import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoUsed, euros, isPendingPayment } from "@/lib/tariffs";
 import { AppointmentItem } from "./AppointmentItem";
 import { PaymentDialog } from "./PaymentDialog";
@@ -49,6 +61,7 @@ export function PatientProfile({
   appointments,
   bonos,
   invoices,
+  invoiceSettings,
   alertFor,
   onBack,
   onNewAppointment,
@@ -64,6 +77,7 @@ export function PatientProfile({
   appointments: Appointment[];
   bonos: Bono[];
   invoices: Invoice[];
+  invoiceSettings: InvoiceSettings | null;
   alertFor: (a: Appointment) => string | null;
   onBack: () => void;
   onNewAppointment: () => void;
@@ -77,6 +91,35 @@ export function PatientProfile({
 }) {
   const [paying, setPaying] = useState<{ kind: "cita" | "bono"; id: string; label: string } | null>(null);
   const now = Date.now();
+
+  // Cobros de este paciente aún sin factura: se facturan con el mismo cuadro y
+  // las mismas reglas (numeración y fechas correlativas) que en Pagos → Facturas.
+  const toInvoice = useMemo(
+    () => billablePayments(appointments, bonos, invoices).filter((x) => x.patient_id === p.id),
+    [appointments, bonos, invoices, p.id],
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [issuing, setIssuing] = useState<BillablePayment[] | null>(null);
+  const keyOf = (x: BillablePayment) => `${x.kind}:${x.id}`;
+  const selectedItems = toInvoice.filter((x) => selected.has(keyOf(x)));
+  const toggle = (x: BillablePayment) => {
+    const next = new Set(selected);
+    if (next.has(keyOf(x))) next.delete(keyOf(x));
+    else next.add(keyOf(x));
+    setSelected(next);
+  };
+  const skip = async (x: BillablePayment) => {
+    const { error } = await supabase!
+      .from(x.kind === "cita" ? "appointments" : "bonos")
+      .update({ invoice_skipped_at: new Date().toISOString() })
+      .eq("id", x.id);
+    if (error) {
+      toast.error("No se pudo guardar.");
+      return;
+    }
+    toast.success("Pago marcado como «no facturar». Se puede recuperar en Pagos → Facturas.");
+    onChanged();
+  };
 
   const own = appointments.filter((a) => a.patient_id === p.id);
   const upcoming = own.filter((a) => new Date(a.starts_at).getTime() >= now && a.status === "programada");
@@ -242,6 +285,52 @@ export function PatientProfile({
             )}
           </Section>
 
+          <Section title="Pendientes de facturar"
+            action={toInvoice.length > 0 && (
+              <Button size="sm" className="rounded-full" disabled={selectedItems.length === 0 || !invoiceSettings}
+                onClick={() => setIssuing(selectedItems)}>
+                <FileText className="size-4" />
+                Facturar ({selectedItems.length})
+              </Button>
+            )}>
+            {toInvoice.length === 0 ? (
+              <p className="text-muted-foreground">No hay cobros pendientes de facturar.</p>
+            ) : (
+              <div className="flex flex-col rounded-2xl border border-border bg-card">
+                {invoiceSettings && (
+                  <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+                    Próxima factura: <strong className="text-foreground">{invoiceCode(invoiceSettings, invoiceSettings.next_number)}</strong>
+                    {invoiceSettings.last_date && <> · fecha igual o posterior al {shortDate(invoiceSettings.last_date)}</>}
+                  </p>
+                )}
+                <ShowMoreList className="divide-y divide-border">
+                  {toInvoice.map((x) => (
+                    <li key={keyOf(x)} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="flex min-w-0 items-start gap-3 text-sm">
+                        <Checkbox className="mt-0.5" checked={selected.has(keyOf(x))} onCheckedChange={() => toggle(x)} />
+                        <span className="min-w-0">
+                          <span className="block font-medium text-foreground">{x.label}</span>
+                          <span className="block text-muted-foreground">
+                            {x.kind === "cita" ? `Sesión del ${shortDate(x.date)}` : `Vendido el ${shortDate(x.date)}`} · cobrado el {shortDate(x.paid_at)}
+                            {x.method && ` · ${PAYMENT_METHOD_LABEL[x.method]}`}
+                          </span>
+                        </span>
+                      </label>
+                      <span className="flex shrink-0 items-center gap-2 pl-7 sm:pl-0">
+                        <strong className="text-sm">{euros(x.cents)}</strong>
+                        <Button size="sm" variant="outline" disabled={!invoiceSettings} onClick={() => setIssuing([x])}>Facturar</Button>
+                        <Button size="sm" variant="ghost" onClick={() => skip(x)}>No facturar</Button>
+                      </span>
+                    </li>
+                  ))}
+                </ShowMoreList>
+              </div>
+            )}
+            {!p.tax_id && toInvoice.length > 0 && (
+              <p className="mt-2 text-xs text-amber-800">Falta el DNI: la factura saldrá sin él. Puedes añadirlo en «Datos fiscales».</p>
+            )}
+          </Section>
+
           <Section title="Bonos">
             {ownBonos.length === 0 ? (
               <p className="text-muted-foreground">No tiene bonos.</p>
@@ -302,6 +391,21 @@ export function PatientProfile({
         </div>
       </div>
 
+      {issuing && invoiceSettings && (
+        <IssueDialog
+          items={issuing}
+          settings={invoiceSettings}
+          patients={[p]}
+          patientName={() => p.full_name || p.email}
+          onClose={() => setIssuing(null)}
+          onIssued={(created) => {
+            setIssuing(null);
+            setSelected(new Set());
+            onChanged();
+            if (created.length === 1) openInvoice(created[0]);
+          }}
+        />
+      )}
       {paying && (
         <PaymentDialog
           kind={paying.kind}

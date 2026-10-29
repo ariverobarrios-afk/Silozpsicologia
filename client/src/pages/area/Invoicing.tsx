@@ -283,7 +283,7 @@ export function InvoicingSection({
   );
 }
 
-function IssueDialog({
+export function IssueDialog({
   items,
   settings,
   patients,
