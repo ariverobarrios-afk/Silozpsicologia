@@ -73,6 +73,8 @@ function PanelTerapeuta() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
   const [choosingNew, setChoosingNew] = useState(false);
+  // Notas de cada cita (id de cita → texto). Solo las lee la administración.
+  const [notes, setNotes] = useState<Map<string, string>>(new Map());
 
   const reload = useCallback(async () => {
     if (!supabase) return;
@@ -88,12 +90,14 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
-    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }] = await Promise.all([
+    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }, { data: nt }] = await Promise.all([
       supabase.from("agenda_days").select("day, psicolink"),
       supabase.from("invoices").select("*").order("number"),
       supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
+      supabase.from("appointment_notes").select("appointment_id, notes"),
     ]);
+    setNotes(new Map(((nt as { appointment_id: string; notes: string }[] | null) ?? []).map((n) => [n.appointment_id, n.notes])));
     setEvents((ev as AgendaEvent[] | null) ?? []);
     setInvoices((inv as Invoice[] | null) ?? []);
     setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
@@ -258,6 +262,7 @@ function PanelTerapeuta() {
               appointments={visible}
               events={events}
               patientName={patientName}
+              notesFor={(a) => notes.get(a.id)}
               onSelect={(a) => setEditing(a)}
               onSelectEvent={(ev) => setEditingEvent(ev)}
               alertFor={alertFor}
@@ -469,6 +474,7 @@ function PanelTerapeuta() {
         <AppointmentDialog
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
+          initialNotes={editing === "new" ? "" : notes.get(editing.id) ?? ""}
           appointments={appointments}
           events={events}
           bonos={bonos}

@@ -24,3 +24,11 @@ export function toTimeInput(iso: string): string {
 export function fromInputs(date: string, time: string): string {
   return new Date(`${date}T${time}`).toISOString();
 }
+
+// Vista previa de las notas de una cita (p. ej. al pasar el ratón en la
+// agenda): hasta `maxWords` palabras; si hay más, termina en «…».
+export function notePreview(notes: string, maxWords = 50): string {
+  const words = notes.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return notes.trim();
+  return `${words.slice(0, maxWords).join(" ")}…`;
+}
