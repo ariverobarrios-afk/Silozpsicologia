@@ -5,12 +5,13 @@ import Acceso from "./Acceso";
 import NuevaContrasena from "./NuevaContrasena";
 import Panel from "./Panel";
 import MiArea from "./MiArea";
-import { useNoIndex } from "./AreaLayout";
+import { useAreaManifest, useNoIndex } from "./AreaLayout";
 
 // Se carga bajo demanda desde App.tsx: así Supabase y el área privada no
 // pesan en la web pública.
 export default function AreaRoutes() {
   useNoIndex();
+  useAreaManifest();
   return (
     <AuthProvider>
       <Switch>

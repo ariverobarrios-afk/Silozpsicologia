@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   STATUS_LABEL,
   supabase,
@@ -51,6 +52,7 @@ export function AppointmentDialog({
   events = [],
   bonos,
   appointment,
+  initialNotes = "",
   defaultPatientId,
   defaultDate,
   defaultTime,
@@ -63,6 +65,7 @@ export function AppointmentDialog({
   events?: AgendaEvent[]; // para avisar si la cita choca con un evento
   bonos: Bono[];
   appointment: Appointment | null;
+  initialNotes?: string; // notas ya guardadas de esta cita (solo las ve la psicóloga)
   defaultPatientId?: string;
   defaultDate?: Date;
   defaultTime?: string;
@@ -92,6 +95,7 @@ export function AppointmentDialog({
   const [bonoPayment, setBonoPayment] = useState<PaymentInput>(newPaymentInput);
   const [payingDebt, setPayingDebt] = useState<{ kind: "bono" | "cita"; id: string; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [notes, setNotes] = useState(initialNotes);
 
   const patient = patients.find((p) => p.id === patientId);
 
@@ -280,6 +284,15 @@ export function AppointmentDialog({
     const { data: saved, error } = appointment
       ? await supabase!.from("appointments").update(row).eq("id", appointment.id).select("id").single()
       : await supabase!.from("appointments").insert(row).select("id").single();
+    // Las notas van en su propia tabla (el paciente no puede leerlas).
+    let notesError = false;
+    if (!error && saved && notes.trim() !== initialNotes.trim()) {
+      const id = (saved as { id: string }).id;
+      const res = notes.trim()
+        ? await supabase!.from("appointment_notes").upsert({ appointment_id: id, notes: notes.trim() })
+        : await supabase!.from("appointment_notes").delete().eq("appointment_id", id);
+      notesError = Boolean(res.error);
+    }
     if (!error && newlyPaid && saved) {
       await registerPayment("cita", (saved as { id: string }).id, { ...payment, invoice: payment.invoice && canInvoiceThis });
     }
@@ -294,7 +307,8 @@ export function AppointmentDialog({
       );
       return;
     }
-    toast.success(appointment ? "Cita actualizada." : "Cita creada.");
+    if (notesError) toast.error("La cita se guardó, pero no las notas. Vuelve a intentarlo.");
+    else toast.success(appointment ? "Cita actualizada." : "Cita creada.");
     onSaved();
   };
 
@@ -576,6 +590,16 @@ export function AppointmentDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="notes">Notas</Label>
+            <Textarea id="notes" rows={4} maxLength={5000} value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Objetivos de la sesión, cosas importantes a tener en cuenta…" />
+            <p className="text-xs text-muted-foreground">
+              Solo las ves tú (el paciente no). Aparecen al pasar el ratón por la cita en la agenda.
+            </p>
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             {appointment ? (

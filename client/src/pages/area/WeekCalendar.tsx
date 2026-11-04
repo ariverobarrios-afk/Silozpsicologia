@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AgendaEvent, Appointment } from "@/lib/supabase";
 import { isPendingPayment } from "@/lib/tariffs";
+import { notePreview } from "./format";
 
 const HOUR_PX = 56; // alto de una hora en la rejilla
 const DEFAULT_START = 8; // franja visible por defecto: 8:00–21:00
@@ -79,6 +80,7 @@ export function WeekCalendar({
   appointments,
   events = [],
   patientName,
+  notesFor,
   onSelect,
   onSelectEvent,
   onCreate,
@@ -89,6 +91,7 @@ export function WeekCalendar({
   appointments: Appointment[];
   events?: AgendaEvent[];
   patientName: (id: string) => string;
+  notesFor?: (a: Appointment) => string | undefined;
   onSelect: (a: Appointment) => void;
   onSelectEvent?: (e: AgendaEvent) => void;
   onCreate: (date: Date, time: string) => void;
@@ -285,6 +288,7 @@ export function WeekCalendar({
                     const isFirst = a.session_type === "primera" && a.status !== "cancelada";
                     const unpaid = isPendingPayment(a) && start.getTime() < now.getTime();
                     const alert = alertFor?.(a) ?? null;
+                    const notes = notesFor?.(a);
                     return (
                       <button
                         key={a.id}
@@ -307,7 +311,7 @@ export function WeekCalendar({
                           `${a.duration_minutes} min`,
                           isFirst && "Primera sesión",
                           alert ?? (unpaid && "Pendiente de pago"),
-                        ].filter(Boolean).join(" · ")}
+                        ].filter(Boolean).join(" · ") + (notes ? `\n\n${notePreview(notes)}` : "")}
                       >
                         {(unpaid || alert) && (
                           <span className={cn(

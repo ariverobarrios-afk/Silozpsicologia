@@ -821,6 +821,37 @@ revoke all on function public.register_payment(text, uuid, date, text, boolean) 
 grant execute on function public.register_payment(text, uuid, date, text, boolean) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Notas de cada cita: lo que la psicóloga quiere tener a mano para esa sesión
+-- (objetivos a trabajar, cosas importantes…). Se ven al pasar el ratón por la
+-- cita en la agenda. Van en una tabla aparte, solo para administración: el
+-- paciente puede leer sus citas, pero nunca estas notas.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.appointment_notes (
+  appointment_id uuid primary key references public.appointments (id) on delete cascade,
+  notes          text not null check (length(trim(notes)) > 0 and length(notes) <= 5000),
+  updated_at     timestamptz not null default now()
+);
+alter table public.appointment_notes enable row level security;
+
+drop trigger if exists appointment_notes_touch_updated_at on public.appointment_notes;
+create trigger appointment_notes_touch_updated_at
+  before update on public.appointment_notes
+  for each row execute function public.touch_updated_at();
+
+drop policy if exists "appointment_notes: admin lee" on public.appointment_notes;
+create policy "appointment_notes: admin lee"
+  on public.appointment_notes for select to authenticated using (public.is_admin());
+drop policy if exists "appointment_notes: admin crea" on public.appointment_notes;
+create policy "appointment_notes: admin crea"
+  on public.appointment_notes for insert to authenticated with check (public.is_admin());
+drop policy if exists "appointment_notes: admin modifica" on public.appointment_notes;
+create policy "appointment_notes: admin modifica"
+  on public.appointment_notes for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "appointment_notes: admin borra" on public.appointment_notes;
+create policy "appointment_notes: admin borra"
+  on public.appointment_notes for delete to authenticated using (public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DAR ACCESO DE ADMINISTRADORA A SILVIA (ejecutar UNA vez, a mano):
 --
 --   1. Supabase → Authentication → Users → "Add user" → "Send invitation"

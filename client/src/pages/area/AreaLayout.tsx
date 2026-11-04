@@ -17,6 +17,26 @@ export function useNoIndex() {
   }, []);
 }
 
+// En el área privada, el móvil instala la «app» del área (abre en /acceso,
+// que lleva al panel o a «Mi área» según quién entre) y no la web pública.
+export function useAreaManifest() {
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!link) return;
+    const previous = link.href;
+    link.href = "/area.webmanifest";
+    return () => { link.href = previous; };
+  }, []);
+}
+
+// ¿Está abierta como app instalada (pantalla completa, sin navegador)?
+export function isInstalledApp(): boolean {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
 export function homeFor(role: Role | undefined): string {
   return role === "admin" ? "/panel" : "/mi-area";
 }
@@ -28,7 +48,7 @@ export function AreaLayout({ title, children }: { title: string; children: React
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-background/95">
         <div className="container flex h-16 items-center justify-between gap-4">
-          <Link href="/" className="font-serif text-xl font-semibold text-foreground hover:text-primary">
+          <Link href={isInstalledApp() ? homeFor(profile?.role) : "/"} className="font-serif text-xl font-semibold text-foreground hover:text-primary">
             Siloz Psicología
           </Link>
           {profile && (
