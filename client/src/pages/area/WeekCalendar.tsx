@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import {
   addDays,
   addWeeks,
@@ -11,12 +11,14 @@ import {
 import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
 import type { AgendaEvent, Appointment } from "@/lib/supabase";
 import { isPendingPayment } from "@/lib/tariffs";
 import { notePreview } from "./format";
 
 const HOUR_PX = 56; // alto de una hora en la rejilla
+const HOUR_PX_MOBILE = 80; // en el móvil (vista de un día) hay sitio para más texto
 const DEFAULT_START = 8; // franja visible por defecto: 8:00–21:00
 const DEFAULT_END = 21;
 
@@ -100,6 +102,29 @@ export function WeekCalendar({
   onTogglePsicolink?: (day: Date) => void;
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  // En el móvil se ve un solo día (el elegido en la tira de la semana).
+  const isMobile = useIsMobile();
+  const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
+  const hourPx = isMobile ? HOUR_PX_MOBILE : HOUR_PX;
+  const pickDay = (d: Date) => {
+    setSelectedDay(startOfDay(d));
+    setWeekStart(startOfWeek(d, { weekStartsOn: 1 }));
+  };
+  const goToday = () => pickDay(new Date());
+  const step = (dir: 1 | -1) => (isMobile ? pickDay(addDays(selectedDay, dir)) : setWeekStart(addWeeks(weekStart, dir)));
+  // Deslizar el dedo a izquierda o derecha cambia de día.
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: TouchEvent) => {
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const t0 = touchStart.current;
+    touchStart.current = null;
+    if (!t0 || !isMobile) return;
+    const dx = e.changedTouches[0].clientX - t0.x;
+    const dy = e.changedTouches[0].clientY - t0.y;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2) step(dx < 0 ? 1 : -1);
+  };
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
@@ -107,6 +132,7 @@ export function WeekCalendar({
   }, []);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const gridDays = isMobile ? [selectedDay] : days;
   const weekEnd = addDays(weekStart, 7);
 
   const isInWeek = (iso: string) => {
@@ -126,17 +152,20 @@ export function WeekCalendar({
   }
   endHour = Math.min(endHour, 24);
   const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
-  const gridHeight = hours.length * HOUR_PX;
+  const gridHeight = hours.length * hourPx;
 
   const last = addDays(weekStart, 6);
   const rangeLabel = isSameMonth(weekStart, last)
     ? `${format(weekStart, "d")} – ${format(last, "d 'de' MMMM yyyy", { locale: es })}`
     : `${format(weekStart, "d MMM", { locale: es })} – ${format(last, "d MMM yyyy", { locale: es })}`;
+  const dayLabel = format(selectedDay, "EEEE d 'de' MMMM", { locale: es });
+  const dayCount = inWeek.filter((a) => a.status !== "cancelada" && isSameDay(new Date(a.starts_at), selectedDay)).length;
+  const gridCols = isMobile ? "grid-cols-[44px_1fr]" : "grid-cols-[56px_repeat(7,1fr)]";
 
   const handleEmptyClick = (day: Date, e: MouseEvent<HTMLDivElement>) => {
     const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
     // Redondear a la media hora en la que se ha hecho clic.
-    const minutes = startHour * 60 + Math.floor((y / HOUR_PX) * 2) * 30;
+    const minutes = startHour * 60 + Math.floor((y / hourPx) * 2) * 30;
     const h = String(Math.floor(minutes / 60)).padStart(2, "0");
     const m = String(minutes % 60).padStart(2, "0");
     onCreate(day, `${h}:${m}`);
@@ -145,26 +174,68 @@ export function WeekCalendar({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
+        <Button variant="outline" size="sm" onClick={goToday}>
           Hoy
         </Button>
-        <Button variant="ghost" size="icon" aria-label="Semana anterior" onClick={() => setWeekStart(addWeeks(weekStart, -1))}>
+        <Button variant="ghost" size="icon" aria-label={isMobile ? "Día anterior" : "Semana anterior"} onClick={() => step(-1)}>
           <ChevronLeft className="size-5" />
         </Button>
-        <Button variant="ghost" size="icon" aria-label="Semana siguiente" onClick={() => setWeekStart(addWeeks(weekStart, 1))}>
+        <Button variant="ghost" size="icon" aria-label={isMobile ? "Día siguiente" : "Semana siguiente"} onClick={() => step(1)}>
           <ChevronRight className="size-5" />
         </Button>
-        <h2 className="font-serif text-xl font-semibold text-foreground">{rangeLabel}</h2>
+        {isMobile ? (
+          <h2 className="font-serif text-lg font-semibold text-foreground first-letter:uppercase">{dayLabel}</h2>
+        ) : (
+          <h2 className="font-serif text-xl font-semibold text-foreground">{rangeLabel}</h2>
+        )}
         <span className="ml-auto text-sm text-muted-foreground">
-          {inWeek.filter((a) => a.status !== "cancelada").length} citas esta semana
+          {isMobile
+            ? `${dayCount} ${dayCount === 1 ? "cita" : "citas"}`
+            : `${inWeek.filter((a) => a.status !== "cancelada").length} citas esta semana`}
         </span>
       </div>
 
+      {/* Móvil: tira con los 7 días de la semana para elegir cuál ver. */}
+      {isMobile && (
+        <div className="mb-3 grid grid-cols-7 gap-1">
+          {days.map((d) => {
+            const selected = isSameDay(d, selectedDay);
+            const count = inWeek.filter((a) => a.status !== "cancelada" && isSameDay(new Date(a.starts_at), d)).length;
+            return (
+              <button key={d.toISOString()} type="button" onClick={() => pickDay(d)} aria-pressed={selected}
+                className={cn(
+                  "flex flex-col items-center rounded-xl py-1.5 text-xs transition-colors",
+                  selected ? "bg-primary text-primary-foreground"
+                  : isPsicolink?.(d) ? "bg-sky-100 text-foreground"
+                  : "text-foreground hover:bg-muted"
+                )}>
+                <span className={cn("uppercase", !selected && "text-muted-foreground")}>{format(d, "EEEEE", { locale: es })}</span>
+                <span className={cn("text-base font-semibold", isSameDay(d, now) && !selected && "text-primary underline underline-offset-4")}>
+                  {format(d, "d")}
+                </span>
+                <span className={cn("mt-0.5 size-1.5 rounded-full", count ? (selected ? "bg-primary-foreground" : "bg-primary") : "bg-transparent")} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {isMobile && onTogglePsicolink && (
+        <button type="button" onClick={() => onTogglePsicolink(selectedDay)} aria-pressed={isPsicolink?.(selectedDay)}
+          className={cn(
+            "mb-3 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+            isPsicolink?.(selectedDay)
+              ? "bg-sky-600 text-white"
+              : "border border-dashed border-border text-muted-foreground"
+          )}>
+          {isPsicolink?.(selectedDay) ? "Día de Psicolink (toca para quitar)" : "Marcar como día de Psicolink"}
+        </button>
+      )}
+
       {/* En pantallas estrechas la rejilla se desplaza en horizontal dentro de su caja. */}
-      <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-        <div className="min-w-[760px]">
-          {/* Cabecera de días */}
-          <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-border">
+      <div className="overflow-x-auto rounded-2xl border border-border bg-card" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <div className={isMobile ? "" : "min-w-[760px]"}>
+          {/* Cabecera de días (en el móvil la sustituye la tira de arriba) */}
+          {!isMobile && <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-border">
             <div />
             {days.map((d) => {
               const today = isSameDay(d, now);
@@ -202,26 +273,26 @@ export function WeekCalendar({
                 </div>
               );
             })}
-          </div>
+          </div>}
 
           {/* Rejilla horaria */}
-          <div className="grid grid-cols-[56px_repeat(7,1fr)]">
+          <div className={cn("grid", gridCols)}>
             <div className="relative" style={{ height: gridHeight }}>
               {hours.map((h, i) => (
                 <div key={h} className="absolute right-2 -translate-y-1/2 text-xs text-muted-foreground"
-                  style={{ top: i * HOUR_PX }}>
+                  style={{ top: i * hourPx }}>
                   {i === 0 ? "" : `${String(h).padStart(2, "0")}:00`}
                 </div>
               ))}
             </div>
 
-            {days.map((day) => {
+            {gridDays.map((day) => {
               const dayItems: Slot[] = [
                 ...inWeek.filter((a) => isSameDay(new Date(a.starts_at), day)).map((a) => ({ kind: "cita" as const, a })),
                 ...eventsInWeek.filter((e) => isSameDay(new Date(e.starts_at), day)).map((e) => ({ kind: "evento" as const, e })),
               ];
               const showNow = isSameDay(day, now);
-              const nowTop = ((minutesOfDay(now) - startHour * 60) / 60) * HOUR_PX;
+              const nowTop = ((minutesOfDay(now) - startHour * 60) / 60) * hourPx;
               return (
                 <div
                   key={day.toISOString()}
@@ -232,11 +303,11 @@ export function WeekCalendar({
                   )}
                   style={{ height: gridHeight }}
                   onClick={(e) => handleEmptyClick(day, e)}
-                  title="Clic para añadir una cita o un evento"
+                  title={isMobile ? undefined : "Clic para añadir una cita o un evento"}
                 >
                   {hours.map((h, i) => (
                     <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-border/70"
-                      style={{ top: i * HOUR_PX }} />
+                      style={{ top: i * hourPx }} />
                   ))}
 
                   {showNow && nowTop >= 0 && nowTop <= gridHeight && (
@@ -248,10 +319,10 @@ export function WeekCalendar({
 
                   {layoutDay(dayItems).map(({ s, lane, lanes }) => {
                     const position = (startIso: string, minutes: number) => {
-                      const top = ((minutesOfDay(new Date(startIso)) - startHour * 60) / 60) * HOUR_PX;
+                      const top = ((minutesOfDay(new Date(startIso)) - startHour * 60) / 60) * hourPx;
                       return {
                         top: top + 1,
-                        height: Math.max((minutes / 60) * HOUR_PX - 2, 22),
+                        height: Math.max((minutes / 60) * hourPx - 2, 22),
                         left: `calc(${(lane / lanes) * 100}% + 2px)`,
                         width: `calc(${100 / lanes}% - 4px)`,
                       };
@@ -327,6 +398,10 @@ export function WeekCalendar({
                         <span className="block truncate opacity-80">
                           {format(start, "HH:mm")}–{format(new Date(start.getTime() + a.duration_minutes * 60_000), "HH:mm")}
                         </span>
+                        {/* En el móvil no hay «pasar el ratón»: las notas se ven en la propia cita. */}
+                        {isMobile && notes && (
+                          <span className="mt-0.5 line-clamp-2 whitespace-pre-line italic opacity-80">{notes}</span>
+                        )}
                       </button>
                     );
                   })}
@@ -337,7 +412,9 @@ export function WeekCalendar({
         </div>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
-        Haz clic en un hueco para añadir una cita o un evento a esa hora, o en uno ya creado para editarlo.
+        {isMobile
+          ? "Toca un hueco para añadir una cita o un evento, o uno ya creado para editarlo. Desliza a los lados para cambiar de día."
+          : "Haz clic en un hueco para añadir una cita o un evento a esa hora, o en uno ya creado para editarlo."}
       </p>
     </div>
   );
