@@ -516,7 +516,7 @@ export function AppointmentDialog({
               </p>
             )}
             {patientId && usableBonos.length === 0 && !sellingBono && !bonoBlocked && !paidBlocksBono && (
-              <Button type="button" variant="outline" size="sm" className="self-start"
+              <Button type="button" variant="outline" size="sm" className="h-auto self-start whitespace-normal py-1.5 text-left"
                 onClick={() => setSellingBono(true)}>
                 <Ticket className="size-4" />
                 Vender {BONO.label.toLowerCase()} ({euros(BONO.price_cents)}) y usarlo en esta cita

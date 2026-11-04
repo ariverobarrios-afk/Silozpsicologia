@@ -174,7 +174,7 @@ export function PaymentsTab({
 
   return (
     <Tabs defaultValue="contabilidad">
-      <TabsList className="mb-6">
+      <TabsList className="mb-6 grid h-auto w-full grid-cols-2 sm:inline-flex sm:h-9 sm:w-fit">
         <TabsTrigger value="contabilidad">Contabilidad</TabsTrigger>
         <TabsTrigger value="pendientes">
           Pendientes de cobro{pendingCount > 0 ? ` (${pendingCount})` : ""}

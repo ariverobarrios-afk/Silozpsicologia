@@ -64,8 +64,8 @@ export function AreaLayout({ title, children }: { title: string; children: React
           )}
         </div>
       </header>
-      <main className="container py-8 md:py-12">
-        <h1 className="mb-8 font-serif text-3xl font-bold text-foreground md:text-4xl">{title}</h1>
+      <main className="container py-6 md:py-12">
+        <h1 className="mb-6 font-serif text-2xl font-bold text-foreground md:mb-8 md:text-4xl">{title}</h1>
         {children}
       </main>
     </div>
