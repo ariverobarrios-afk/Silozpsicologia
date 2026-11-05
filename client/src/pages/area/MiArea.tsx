@@ -73,24 +73,24 @@ function MisCitas() {
         })}
       {appointments && (
         <div className="grid gap-10 lg:grid-cols-2">
-          <section>
+          <section className="flex flex-col">
             <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Próximas citas</h2>
             {upcoming.length === 0 ? (
               <p className="text-muted-foreground">No tienes citas programadas.</p>
             ) : (
-              <ul className="flex flex-col gap-3">
+              <ShowMoreList className="flex flex-col gap-3">
                 {upcoming.map((a) => <AppointmentItem key={a.id} appointment={a} />)}
-              </ul>
+              </ShowMoreList>
             )}
           </section>
-          <section>
+          <section className="flex flex-col">
             <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Historial</h2>
             {past.length === 0 ? (
               <p className="text-muted-foreground">Aún no hay citas anteriores.</p>
             ) : (
-              <ul className="flex flex-col gap-3">
+              <ShowMoreList className="flex flex-col gap-3">
                 {past.map((a) => <AppointmentItem key={a.id} appointment={a} />)}
-              </ul>
+              </ShowMoreList>
             )}
           </section>
         </div>
