@@ -155,7 +155,6 @@ export function emailConfirmacionPaciente(b: BookingInfo, baseUrl: string) {
     filas: [
       ["Fecha", capitalize(madridLongDay(b.starts_at, true))],
       ["Hora", `${madridTime(b.starts_at)} – ${madridTime(b.ends_at)} (hora de Madrid)`],
-      ["Duración", `${b.duration_minutes} min`],
       ["Psicóloga", psicologa],
     ],
     parrafos: [

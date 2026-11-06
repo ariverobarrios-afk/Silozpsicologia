@@ -62,6 +62,7 @@ test("email de cancelación y confirmación al paciente", () => {
   assert.match(p.texto, /Has reservado tu cita con Silvia y te la confirmamos/);
   assert.match(p.texto, /hasta 24 horas antes/);
   assert.match(p.texto, /Psicóloga: Silvia/);
+  assert.doesNotMatch(p.texto, /Duración/);
 });
 
 test("enviarEmail no lanza si falta la configuración", async () => {
