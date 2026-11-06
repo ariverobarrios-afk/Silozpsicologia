@@ -111,14 +111,15 @@ A partir de ahí, los pacientes los invita ella desde **Panel → Pacientes → 
 
 Detalle completo en `docs/reserva-citas-paciente.md`.
 
-1. **Base de datos:** aplica la última sección de `supabase/schema.sql`
-   (la misma que `supabase/migrations/20261106_reserva_citas_paciente.sql`).
-   Supabase → SQL Editor → pega ese archivo → Run. Es idempotente.
+1. **Base de datos:** ✅ aplicada el 06/11/2026 (migración `reserva_citas_paciente`).
+   Es la última sección de `supabase/schema.sql`
+   (= `supabase/migrations/20261106_reserva_citas_paciente.sql`); idempotente.
 2. **Vercel → Environment Variables** (Preview y, al publicar, Production):
    - `RESEND_API_KEY`: ya existe (la usa el formulario de contacto).
-   - `EMAIL_FROM`: `Siloz Psicología <citas@silozpsicologia.com>`. Necesita el
-     dominio verificado en Resend (paso 4). Mientras no esté, se usa el
-     remitente de pruebas, que solo envía al email de la cuenta de Resend.
+   - `EMAIL_FROM` (opcional): por defecto los avisos salen de
+     `Siloz Psicología <no-reply@silozpsicologia.com>`, el mismo remitente que
+     las invitaciones (dominio ya verificado en Resend). Solo hace falta si se
+     quiere otro.
    - `SUPABASE_SERVICE_ROLE_KEY`: ya existe (paso 5).
    - `APP_URL` (opcional): `https://silozpsicologia.com`, para los enlaces de
      los emails. Si no se pone, se usa el dominio desde el que se reserva.
