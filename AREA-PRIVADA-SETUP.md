@@ -7,7 +7,7 @@ Qué hay construido:
 | `/acceso` | Todos | Inicio de sesión y «he olvidado mi contraseña». |
 | `/acceso/nueva-contrasena` | Todos | Donde lleva el email de invitación / recuperación para elegir contraseña. |
 | `/panel` | Silvia | Agenda (crear, editar, borrar citas, marcar realizadas) y pacientes (invitar, desactivar). |
-| `/mi-area` | Paciente | Sus próximas citas y su historial. Solo lectura. |
+| `/mi-area` | Paciente | Reservar cita en los huecos que abre Silvia, sus próximas citas (puede cancelar las que reservó, con más de 24 h) y su historial. |
 
 Los datos viven en **Supabase** (base de datos + inicio de sesión). Los permisos
 están en la propia base de datos (`supabase/schema.sql`): un paciente solo puede
@@ -104,6 +104,26 @@ variable, la clave secreta, que usa el servidor para enviar invitaciones.
 3. Silvia abre el email, elige contraseña y entra en `/panel`.
 
 A partir de ahí, los pacientes los invita ella desde **Panel → Pacientes → Invitar paciente**.
+
+---
+
+## 7. Reserva de citas por el paciente
+
+Detalle completo en `docs/reserva-citas-paciente.md`.
+
+1. **Base de datos:** aplica la última sección de `supabase/schema.sql`
+   (la misma que `supabase/migrations/20261106_reserva_citas_paciente.sql`).
+   Supabase → SQL Editor → pega ese archivo → Run. Es idempotente.
+2. **Vercel → Environment Variables** (Preview y, al publicar, Production):
+   - `RESEND_API_KEY`: ya existe (la usa el formulario de contacto).
+   - `EMAIL_FROM`: `Siloz Psicología <citas@silozpsicologia.com>`. Necesita el
+     dominio verificado en Resend (paso 4). Mientras no esté, se usa el
+     remitente de pruebas, que solo envía al email de la cuenta de Resend.
+   - `SUPABASE_SERVICE_ROLE_KEY`: ya existe (paso 5).
+   - `APP_URL` (opcional): `https://silozpsicologia.com`, para los enlaces de
+     los emails. Si no se pone, se usa el dominio desde el que se reserva.
+3. La ficha de Silvia (`profiles`) debe tener su email real: los avisos de
+   reserva van ahí. El teléfono es opcional y se muestra al paciente para contactar.
 
 ---
 
