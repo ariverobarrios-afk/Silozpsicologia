@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { supabase, type Appointment, type Bono, type Invoice } from "@/lib/supab
 import { openInvoice } from "@/lib/invoices";
 import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { AppointmentItem } from "./AppointmentItem";
+import { Banner, BookingSection, CancelBookingButton, useBookingContext } from "./BookingSection";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { ShowMoreList } from "./ShowMoreList";
 
@@ -17,8 +18,10 @@ function MisCitas() {
   const [bonos, setBonos] = useState<Bono[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [error, setError] = useState(false);
+  const { settings, psychologist } = useBookingContext();
+  const [cancelBanner, setCancelBanner] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadAppointments = useCallback(() => {
     if (!supabase || !profile) return;
     // RLS garantiza que solo vuelven las citas de este paciente; el filtro
     // explícito es solo para que la consulta sea clara.
@@ -31,6 +34,11 @@ function MisCitas() {
         if (error) setError(true);
         else setAppointments((data as Appointment[]) ?? []);
       });
+  }, [profile]);
+
+  useEffect(() => {
+    if (!supabase || !profile) return;
+    loadAppointments();
     supabase
       .from("bonos")
       .select("*")
@@ -44,7 +52,7 @@ function MisCitas() {
       .eq("patient_id", profile.id)
       .order("number", { ascending: false })
       .then(({ data }) => setInvoices((data as Invoice[]) ?? []));
-  }, [profile]);
+  }, [profile, loadAppointments]);
 
   const now = Date.now();
   const upcoming = (appointments ?? []).filter(
@@ -72,14 +80,28 @@ function MisCitas() {
           );
         })}
       {appointments && (
+        <BookingSection appointments={appointments} settings={settings} psychologist={psychologist}
+          onBooked={loadAppointments} />
+      )}
+      {appointments && (
         <div className="grid gap-10 lg:grid-cols-2">
           <section className="flex flex-col">
-            <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Próximas citas</h2>
+            <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Mis próximas citas</h2>
+            {cancelBanner && (
+              <Banner message={cancelBanner} psychologist={psychologist} onClose={() => setCancelBanner(null)} />
+            )}
             {upcoming.length === 0 ? (
               <p className="text-muted-foreground">No tienes citas programadas.</p>
             ) : (
               <ShowMoreList className="flex flex-col gap-3">
-                {upcoming.map((a) => <AppointmentItem key={a.id} appointment={a} />)}
+                {upcoming.map((a) => (
+                  <AppointmentItem key={a.id} appointment={a}
+                    actions={a.origin === "reserva_paciente" && (
+                      <CancelBookingButton appointment={a} settings={settings}
+                        onTooLate={setCancelBanner}
+                        onCancelled={() => { setCancelBanner(null); loadAppointments(); }} />
+                    )} />
+                ))}
               </ShowMoreList>
             )}
           </section>
