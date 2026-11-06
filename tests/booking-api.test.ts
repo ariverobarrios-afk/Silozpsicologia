@@ -58,6 +58,8 @@ test("email de cancelación y confirmación al paciente", () => {
   assert.equal(c.asunto, `Cita cancelada por el paciente: Ana Pérez — ${cuando(booking.starts_at)}`);
   const p = emailConfirmacionPaciente(booking, "https://x.test");
   assert.equal(p.para, "ana@example.com");
+  assert.equal(p.asunto, `Cita confirmada: ${cuando(booking.starts_at)}`);
+  assert.match(p.texto, /Has reservado tu cita con Silvia y te la confirmamos/);
   assert.match(p.texto, /hasta 24 horas antes/);
   assert.match(p.texto, /Psicóloga: Silvia/);
 });

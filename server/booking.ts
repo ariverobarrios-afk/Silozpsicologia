@@ -149,8 +149,9 @@ export function emailCancelacionPsicologa(b: BookingInfo, baseUrl: string, reabi
 export function emailConfirmacionPaciente(b: BookingInfo, baseUrl: string) {
   const horas = b.cancel_limit_hours ?? 24;
   const psicologa = b.psychologist_name || "tu psicóloga";
+  const nombre = (b.patient_name || "").split(" ")[0];
   const { html, texto } = emailSencillo({
-    titulo: "Tu cita está reservada",
+    titulo: "Tu cita está confirmada",
     filas: [
       ["Fecha", capitalize(madridLongDay(b.starts_at, true))],
       ["Hora", `${madridTime(b.starts_at)} – ${madridTime(b.ends_at)} (hora de Madrid)`],
@@ -158,13 +159,14 @@ export function emailConfirmacionPaciente(b: BookingInfo, baseUrl: string) {
       ["Psicóloga", psicologa],
     ],
     parrafos: [
-      `Puedes cancelarla desde tu área privada hasta ${horas} horas antes. Pasado ese plazo, avisa directamente a ${psicologa}.`,
+      `${nombre ? `Hola, ${nombre}. ` : ""}Has reservado tu cita con ${psicologa} y te la confirmamos: no tienes que hacer nada más.`,
+      `Si no puedes venir, cancélala desde tu área privada hasta ${horas} horas antes. Pasado ese plazo, avisa directamente a ${psicologa}.`,
     ],
     enlace: { texto: "Ver mis citas", url: `${baseUrl}/mi-area` },
   });
   return {
     para: b.patient_email,
-    asunto: `Cita reservada: ${cuando(b.starts_at)}`,
+    asunto: `Cita confirmada: ${cuando(b.starts_at)}`,
     html,
     texto,
     responderA: b.psychologist_email || undefined,
