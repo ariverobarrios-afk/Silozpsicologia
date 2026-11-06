@@ -41,6 +41,7 @@ export interface Profile {
   address: string | null;
   invited_at: string | null; // null = nunca se le ha enviado la invitación
   external_center: string | null; // centro o empresa del que viene (null = propio)
+  psychologist_id: string | null; // psicóloga a la que pertenece el paciente
   created_at: string;
 }
 
@@ -48,6 +49,9 @@ export type Modality = "presencial" | "online";
 export type AppointmentStatus = "programada" | "realizada" | "cancelada";
 
 export type SessionType = "primera" | "individual" | "pareja" | "bono";
+
+// De dónde viene la cita: creada por la psicóloga o reservada por el paciente.
+export type AppointmentOrigin = "manual" | "reserva_paciente";
 
 export interface Appointment {
   id: string;
@@ -62,6 +66,23 @@ export interface Appointment {
   bono_id: string | null;
   invoice_skipped_at: string | null; // marcado «no facturar»
   payment_method: PaymentMethod | null; // cómo se cobró (null si no consta)
+  origin: AppointmentOrigin;
+}
+
+// Hueco que la psicóloga ha abierto en su agenda para que un paciente lo reserve.
+export type SlotStatus = "abierto" | "reservado" | "cerrado";
+export interface AgendaSlot {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  status: SlotStatus;
+}
+
+// Ajustes de la reserva de citas (tabla booking_settings, una sola fila).
+export interface BookingSettings {
+  min_advance_hours: number; // antelación mínima para reservar
+  max_window_days: number; // hasta cuántos días vista se puede reservar
+  cancel_limit_hours: number; // hasta cuántas horas antes se puede cancelar
 }
 
 export interface Bono {

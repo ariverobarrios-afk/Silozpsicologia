@@ -13,7 +13,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
-import type { AgendaEvent, Appointment } from "@/lib/supabase";
+import type { AgendaEvent, AgendaSlot, Appointment } from "@/lib/supabase";
 import { isPendingPayment } from "@/lib/tariffs";
 import { notePreview } from "./format";
 
@@ -36,6 +36,10 @@ const PSICOLINK_COLUMN_CLASS = "bg-sky-100/70";
 const EVENT_BLOCK_CLASS =
   "border-violet-500 bg-[repeating-linear-gradient(135deg,oklch(0.95_0.03_295)_0_6px,oklch(0.92_0.045_295)_6px_12px)] text-violet-950 hover:brightness-95";
 
+// Huecos abiertos para que reserven los pacientes: borde discontinuo y fondo claro.
+const OPEN_SLOT_CLASS =
+  "border-2 border-dashed border-primary/60 bg-background/80 text-primary hover:bg-primary/5";
+
 // Pagos pendientes: en rojo, por encima de cualquier otro color.
 const ALERT_BLOCK_CLASS = "border-destructive bg-destructive/15 text-foreground ring-1 ring-destructive/40 hover:bg-destructive/25";
 
@@ -43,9 +47,14 @@ function minutesOfDay(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-// Lo que ocupa un hueco en la rejilla: una cita o un evento.
-type Slot = { kind: "cita"; a: Appointment } | { kind: "evento"; e: AgendaEvent };
-const slotTiming = (s: Slot) => (s.kind === "cita" ? s.a : s.e);
+// Lo que ocupa un hueco en la rejilla: una cita, un evento o un hueco abierto.
+type Slot =
+  | { kind: "cita"; a: Appointment }
+  | { kind: "evento"; e: AgendaEvent }
+  | { kind: "libre"; h: AgendaSlot };
+const slotMinutes = (h: AgendaSlot) => Math.round((new Date(h.ends_at).getTime() - new Date(h.starts_at).getTime()) / 60_000);
+const slotTiming = (s: Slot): { starts_at: string; duration_minutes: number } =>
+  s.kind === "cita" ? s.a : s.kind === "evento" ? s.e : { starts_at: s.h.starts_at, duration_minutes: slotMinutes(s.h) };
 
 // Reparte las citas y eventos que se solapan en carriles para que no se tapen.
 function layoutDay(items: Slot[]) {
@@ -81,10 +90,12 @@ function layoutDay(items: Slot[]) {
 export function WeekCalendar({
   appointments,
   events = [],
+  openSlots = [],
   patientName,
   notesFor,
   onSelect,
   onSelectEvent,
+  onSelectSlot,
   onCreate,
   alertFor,
   isPsicolink,
@@ -92,10 +103,12 @@ export function WeekCalendar({
 }: {
   appointments: Appointment[];
   events?: AgendaEvent[];
+  openSlots?: AgendaSlot[]; // huecos abiertos («Libre»)
   patientName: (id: string) => string;
   notesFor?: (a: Appointment) => string | undefined;
   onSelect: (a: Appointment) => void;
   onSelectEvent?: (e: AgendaEvent) => void;
+  onSelectSlot?: (h: AgendaSlot) => void;
   onCreate: (date: Date, time: string) => void;
   alertFor?: (a: Appointment) => string | null;
   isPsicolink?: (day: Date) => boolean;
@@ -141,11 +154,12 @@ export function WeekCalendar({
   };
   const inWeek = appointments.filter((a) => isInWeek(a.starts_at));
   const eventsInWeek = events.filter((e) => isInWeek(e.starts_at));
+  const slotsInWeek = openSlots.filter((h) => isInWeek(h.starts_at));
 
   // Ampliar la franja horaria si alguna cita o evento cae fuera de 8:00–21:00.
   let startHour = DEFAULT_START;
   let endHour = DEFAULT_END;
-  for (const a of [...inWeek, ...eventsInWeek]) {
+  for (const a of [...inWeek, ...eventsInWeek, ...slotsInWeek.map((h) => ({ starts_at: h.starts_at, duration_minutes: slotMinutes(h) }))]) {
     const s = new Date(a.starts_at);
     startHour = Math.min(startHour, s.getHours());
     endHour = Math.max(endHour, Math.ceil((minutesOfDay(s) + a.duration_minutes) / 60));
@@ -290,6 +304,7 @@ export function WeekCalendar({
               const dayItems: Slot[] = [
                 ...inWeek.filter((a) => isSameDay(new Date(a.starts_at), day)).map((a) => ({ kind: "cita" as const, a })),
                 ...eventsInWeek.filter((e) => isSameDay(new Date(e.starts_at), day)).map((e) => ({ kind: "evento" as const, e })),
+                ...slotsInWeek.filter((h) => isSameDay(new Date(h.starts_at), day)).map((h) => ({ kind: "libre" as const, h })),
               ];
               const showNow = isSameDay(day, now);
               const nowTop = ((minutesOfDay(now) - startHour * 60) / 60) * hourPx;
@@ -327,6 +342,30 @@ export function WeekCalendar({
                         width: `calc(${100 / lanes}% - 4px)`,
                       };
                     };
+                    if (s.kind === "libre") {
+                      const h = s.h;
+                      return (
+                        <button
+                          key={`libre-${h.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectSlot?.(h);
+                          }}
+                          className={cn(
+                            "absolute z-10 overflow-hidden rounded-[6px] px-1.5 py-1 text-left text-xs leading-tight transition-colors",
+                            OPEN_SLOT_CLASS
+                          )}
+                          style={position(h.starts_at, slotMinutes(h))}
+                          title={`Hueco libre · ${format(new Date(h.starts_at), "HH:mm")}–${format(new Date(h.ends_at), "HH:mm")} · reservable por tus pacientes`}
+                        >
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide">Libre</span>
+                          <span className="block truncate opacity-80">
+                            {format(new Date(h.starts_at), "HH:mm")}–{format(new Date(h.ends_at), "HH:mm")}
+                          </span>
+                        </button>
+                      );
+                    }
                     if (s.kind === "evento") {
                       const ev = s.e;
                       const start = new Date(ev.starts_at);

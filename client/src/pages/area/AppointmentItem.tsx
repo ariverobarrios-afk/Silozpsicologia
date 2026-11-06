@@ -37,9 +37,11 @@ export function AppointmentItem({
   title,
   actions,
   alert,
+  showOrigin = false,
 }: {
   appointment: Appointment;
   title?: string;
+  showOrigin?: boolean; // marcar las citas que reservó el propio paciente
   actions?: ReactNode;
   alert?: string | null; // motivo para marcarla en rojo (pagos pendientes)
 }) {
@@ -66,6 +68,9 @@ export function AppointmentItem({
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {a.session_type === "primera" && (
           <Badge variant="outline" className={FIRST_SESSION_CLASS}>Primera sesión</Badge>
+        )}
+        {showOrigin && a.origin === "reserva_paciente" && (
+          <Badge variant="outline" className="border-primary/30 bg-background text-primary">Reservada por el paciente</Badge>
         )}
         <PaymentBadge appointment={a} />
         <Badge variant="outline" className={STATUS_CLASS[a.status]}>
