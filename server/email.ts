@@ -6,7 +6,9 @@
 //   EMAIL_FROM      (opcional)    Remitente. Por defecto «Siloz Psicología
 //                                 <no-reply@silozpsicologia.com>», el mismo que
 //                                 usan las invitaciones (dominio verificado en Resend).
-import { Resend } from "resend";
+//
+// Se llama a la API REST de Resend con fetch (no al SDK `resend`): el SDK
+// arrastra módulos que el runtime Edge de Vercel no admite y rompe el despliegue.
 
 export interface EmailInput {
   para: string | string[];
@@ -35,20 +37,24 @@ export async function enviarEmail(input: EmailInput): Promise<EmailResult> {
   const from =
     env("EMAIL_FROM") || "Siloz Psicología <no-reply@silozpsicologia.com>";
   try {
-    const resend = new Resend(apiKey);
-    const { data, error } = await resend.emails.send({
-      from,
-      to,
-      subject: input.asunto,
-      html: input.html,
-      text: input.texto,
-      ...(input.responderA ? { replyTo: input.responderA } : {}),
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: input.asunto,
+        html: input.html,
+        text: input.texto,
+        ...(input.responderA ? { reply_to: input.responderA } : {}),
+      }),
     });
-    if (error) {
-      console.error("Resend rechazó el email:", input.asunto, error.message);
-      return { ok: false, error: error.message };
+    const body = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
+    if (!resp.ok) {
+      console.error("Resend rechazó el email:", input.asunto, resp.status, body.message);
+      return { ok: false, error: body.message || `HTTP ${resp.status}` };
     }
-    return { ok: true, id: data?.id };
+    return { ok: true, id: body.id };
   } catch (err) {
     console.error("Fallo al enviar el email:", input.asunto, err);
     return { ok: false, error: String(err) };

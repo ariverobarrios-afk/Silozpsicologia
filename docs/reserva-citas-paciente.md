@@ -84,7 +84,8 @@ update public.booking_settings set min_advance_hours = 48 where id = 1;
 5. **Coherencia automática:** una cita o un evento que pisa un hueco abierto lo cierra (la spec solo pedía comprobarlo al abrir agenda). Sin esto, un hueco podría seguir ofreciéndose sobre una cita creada después.
 6. **Reserva y cancelación solo con `service_role`** (no como RPC que llame el navegador), para que el email salga siempre.
 7. **Contacto:** la app no tenía canal de contacto en el área privada. Se muestran el email y el teléfono de la ficha de la psicóloga y, si faltan, los de la web (`silozpsicologia@gmail.com`, +34 620 450 696).
-8. **Rama:** el trabajo está en `claude/new-session-6oixn7` (la rama asignada a esta sesión) en lugar de `feature/reserva-citas-paciente`.
+8. **Resend sin SDK:** la spec pedía el SDK oficial, pero arrastra módulos que el runtime Edge de Vercel no admite (el despliegue fallaba). `server/email.ts` llama a la API REST de Resend con `fetch`, igual que `api/contact.ts`.
+9. **Rama:** el trabajo está en `claude/new-session-6oixn7` (la rama asignada a esta sesión) en lugar de `feature/reserva-citas-paciente`.
 
 ## Pruebas
 
