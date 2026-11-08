@@ -16,7 +16,7 @@ import Gracias from "./pages/Gracias";
 
 // Área privada (pacientes y terapeuta), cargada solo cuando se visita.
 const AreaRoutes = lazy(() => import("./pages/area"));
-const AREA_PATHS = ["/acceso", "/acceso/nueva-contrasena", "/panel", "/mi-area"];
+const AREA_PATHS = ["/acceso", "/acceso/nueva-contrasena", "/panel", "/mi-area", "/mi-area/consentimiento"];
 
 // Ruta final: el área privada se monta una sola vez para todas sus páginas
 // (la sesión no se recarga al navegar entre ellas); lo demás es 404.
