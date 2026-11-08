@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
+import { CalendarDays, CalendarPlus, CalendarRange, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type AgendaEvent, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile, type SessionNotes } from "@/lib/supabase";
+import { supabase, type AgendaEvent, type AgendaSlot, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile, type SessionNotes } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
@@ -34,9 +34,11 @@ import { BonoDialog, PaymentsTab } from "./Payments";
 import { InvoicingSection, PatientDataDialog } from "./Invoicing";
 import { PatientProfile } from "./PatientProfile";
 import { WeekCalendar } from "./WeekCalendar";
+import { OpenAgendaDialog, SlotDialog } from "./SlotDialogs";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
 import { agendaNotes } from "./sessionNotes";
+import { format } from "date-fns";
 
 const ALL = "todos";
 
@@ -76,6 +78,12 @@ function PanelTerapeuta() {
   const [choosingNew, setChoosingNew] = useState(false);
   // Notas de cada sesión (id de cita → notas). Solo las lee la administración.
   const [notes, setNotes] = useState<Map<string, SessionNotes>>(new Map());
+  // Huecos abiertos para que reserven los pacientes («Abrir agenda»).
+  const [openSlots, setOpenSlots] = useState<AgendaSlot[]>([]);
+  const [openingAgenda, setOpeningAgenda] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<AgendaSlot | null>(null);
+  // Cita a abrir al llegar desde el enlace de un email (#cita/<id>).
+  const [linkedAppointmentId, setLinkedAppointmentId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!supabase) return;
@@ -91,13 +99,16 @@ function PanelTerapeuta() {
     setPatients(p.data as Profile[]);
     setAppointments(a.data as Appointment[]);
     setBonos(b.data as Bono[]);
-    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }, { data: nt }] = await Promise.all([
+    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }, { data: nt }, { data: sl }] = await Promise.all([
       supabase.from("agenda_days").select("day, psicolink"),
       supabase.from("invoices").select("*").order("number"),
       supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
       supabase.from("appointment_notes").select("appointment_id, notes, next_notes"),
+      supabase.from("agenda_slots").select("id, starts_at, ends_at, status")
+        .eq("status", "abierto").gt("ends_at", new Date().toISOString()).order("starts_at"),
     ]);
+    setOpenSlots((sl as AgendaSlot[] | null) ?? []);
     setNotes(new Map(((nt as SessionNotes[] | null) ?? []).map((n) => [n.appointment_id, n])));
     setEvents((ev as AgendaEvent[] | null) ?? []);
     setInvoices((inv as Invoice[] | null) ?? []);
@@ -125,6 +136,12 @@ function PanelTerapeuta() {
 
   useEffect(() => {
     const sync = () => {
+      const cita = window.location.hash.match(/^#cita\/([\w-]+)$/);
+      if (cita) {
+        setTab("agenda");
+        setLinkedAppointmentId(cita[1]);
+        return;
+      }
       const m = window.location.hash.match(/^#paciente\/([\w-]+)$/);
       setProfileId(m ? m[1] : null);
       if (m) setTab("pacientes");
@@ -133,6 +150,16 @@ function PanelTerapeuta() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+  // Enlace de los emails de reserva/cancelación: abrir esa cita.
+  useEffect(() => {
+    if (!linkedAppointmentId || !appointments) return;
+    const a = appointments.find((x) => x.id === linkedAppointmentId);
+    setLinkedAppointmentId(null);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (a) setEditing(a);
+    else toast.error("No se ha encontrado esa cita.");
+  }, [linkedAppointmentId, appointments]);
+
   const openProfile = (id: string) => {
     window.location.hash = `paciente/${id}`;
     window.scrollTo({ top: 0 });
@@ -246,6 +273,11 @@ function PanelTerapeuta() {
                   Lista
                 </Button>
               </div>
+              <Button variant="outline" onClick={() => setOpeningAgenda(true)} className="rounded-full"
+                title="Crear huecos libres que tus pacientes pueden reservar">
+                <CalendarRange className="size-4" />
+                Abrir agenda
+              </Button>
               <Button onClick={() => chooseNew(filter === ALL ? undefined : filter)} className="rounded-full">
                 <CalendarPlus className="size-4" />
                 Añadir
@@ -262,6 +294,8 @@ function PanelTerapeuta() {
             <WeekCalendar
               appointments={visible}
               events={events}
+              openSlots={openSlots}
+              onSelectSlot={setSelectedSlot}
               patientName={patientName}
               notesFor={(a) => agendaNotes(a, appointments ?? [], notes)}
               onSelect={(a) => setEditing(a)}
@@ -280,7 +314,7 @@ function PanelTerapeuta() {
                 ) : (
                   <ul className="flex flex-col gap-3">
                     {upcoming.map((a) => (
-                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)}
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)} showOrigin
                         actions={editButton(a)} />
                     ))}
                   </ul>
@@ -293,7 +327,7 @@ function PanelTerapeuta() {
                 ) : (
                   <ul className="flex flex-col gap-3">
                     {past.map((a) => (
-                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)}
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)} showOrigin
                         actions={
                           <>
                             {a.status === "programada" && (
@@ -501,6 +535,27 @@ function PanelTerapeuta() {
           defaultTime={newDefaults.time}
           onClose={() => setEditingEvent(null)}
           onSaved={() => { setEditingEvent(null); reload(); }}
+        />
+      )}
+      {openingAgenda && (
+        <OpenAgendaDialog
+          defaultDate={newDefaults.date}
+          onClose={() => setOpeningAgenda(false)}
+          onSaved={() => { setOpeningAgenda(false); reload(); }}
+        />
+      )}
+      {selectedSlot && (
+        <SlotDialog
+          slot={selectedSlot}
+          onClose={() => setSelectedSlot(null)}
+          onClosed={() => { setSelectedSlot(null); reload(); }}
+          onConvert={() => {
+            // Al guardar la cita a la hora del hueco, la base de datos lo marca
+            // como reservado y lo enlaza con ella.
+            const start = new Date(selectedSlot.starts_at);
+            setSelectedSlot(null);
+            openNew(filter === ALL ? undefined : filter, start, format(start, "HH:mm"));
+          }}
         />
       )}
       {editingPatient && (
