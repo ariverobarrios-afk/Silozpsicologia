@@ -327,10 +327,16 @@ export function AppointmentDialog({
 
         {appointment && (
           // Las notas de la sesión (y las de la próxima) se gestionan en su propia página.
-          <Button type="button" variant="outline" className="w-full rounded-full"
-            onClick={() => setLocation(`/panel/sesion/${appointment.id}`)}>
-            <NotebookPen className="size-4" />
-            Entrar en sesión
+          // Enlace de verdad: se puede abrir en otra pestaña (clic central, Ctrl+clic o botón derecho).
+          <Button asChild variant="outline" className="w-full rounded-full">
+            <a href={`/panel/sesion/${appointment.id}`} onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              setLocation(`/panel/sesion/${appointment.id}`);
+            }}>
+              <NotebookPen className="size-4" />
+              Entrar en sesión
+            </a>
           </Button>
         )}
 
