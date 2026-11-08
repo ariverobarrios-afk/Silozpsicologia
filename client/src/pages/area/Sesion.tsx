@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, ChevronLeft, ChevronRight, NotebookPen, User } from "lucide-react";
 import { toast } from "sonner";
@@ -78,6 +78,16 @@ function SesionContent({ id }: { id: string }) {
     if (dirty && !window.confirm("Tienes cambios sin guardar en las notas. ¿Salir sin guardar?")) return;
     setLocation(to);
   };
+  // Enlaces de verdad (se pueden abrir en otra pestaña); el clic normal
+  // navega dentro de la app y avisa si hay notas sin guardar.
+  const link = (to: string) => ({
+    href: to,
+    onClick: (e: MouseEvent<HTMLAnchorElement>) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      go(to);
+    },
+  });
 
   const save = async () => {
     setBusy(true);
@@ -126,11 +136,11 @@ function SesionContent({ id }: { id: string }) {
     <AreaLayout title={name}>
       <div className="flex max-w-3xl flex-col gap-6">
         <div className="-mt-2 flex flex-wrap items-center gap-2 md:-mt-4">
-          <Button variant="ghost" size="sm" className="-ml-3" onClick={() => go("/panel")}>
-            <ArrowLeft className="size-4" /> Agenda
+          <Button asChild variant="ghost" size="sm" className="-ml-3">
+            <a {...link("/panel")}><ArrowLeft className="size-4" /> Agenda</a>
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => go(`/panel#paciente/${appointment.patient_id}`)}>
-            <User className="size-4" /> Ficha del paciente
+          <Button asChild variant="ghost" size="sm">
+            <a {...link(`/panel#paciente/${appointment.patient_id}`)}><User className="size-4" /> Ficha del paciente</a>
           </Button>
         </div>
 
@@ -183,13 +193,13 @@ function SesionContent({ id }: { id: string }) {
         {(prev || next) && (
           <nav className="flex flex-wrap justify-between gap-2 border-t border-border pt-4">
             {prev ? (
-              <Button variant="ghost" size="sm" onClick={() => go(`/panel/sesion/${prev.id}`)}>
-                <ChevronLeft className="size-4" /> Sesión anterior
+              <Button asChild variant="ghost" size="sm">
+                <a {...link(`/panel/sesion/${prev.id}`)}><ChevronLeft className="size-4" /> Sesión anterior</a>
               </Button>
             ) : <span />}
             {next && (
-              <Button variant="ghost" size="sm" onClick={() => go(`/panel/sesion/${next.id}`)}>
-                Sesión siguiente <ChevronRight className="size-4" />
+              <Button asChild variant="ghost" size="sm">
+                <a {...link(`/panel/sesion/${next.id}`)}>Sesión siguiente <ChevronRight className="size-4" /></a>
               </Button>
             )}
           </nav>
