@@ -16,6 +16,8 @@ export interface EmailInput {
   html: string;
   texto: string;
   responderA?: string;
+  de?: string; // remitente distinto del de por defecto
+  adjuntos?: Array<{ nombre: string; contenidoBase64: string }>;
 }
 
 export type EmailResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -35,7 +37,7 @@ export async function enviarEmail(input: EmailInput): Promise<EmailResult> {
   const to = (Array.isArray(input.para) ? input.para : [input.para]).filter(Boolean);
   if (to.length === 0) return { ok: false, error: "no_recipient" };
   const from =
-    env("EMAIL_FROM") || "Siloz Psicología <no-reply@silozpsicologia.com>";
+    input.de || env("EMAIL_FROM") || "Siloz Psicología <no-reply@silozpsicologia.com>";
   try {
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -47,6 +49,9 @@ export async function enviarEmail(input: EmailInput): Promise<EmailResult> {
         html: input.html,
         text: input.texto,
         ...(input.responderA ? { reply_to: input.responderA } : {}),
+        ...(input.adjuntos?.length
+          ? { attachments: input.adjuntos.map((a) => ({ filename: a.nombre, content: a.contenidoBase64 })) }
+          : {}),
       }),
     });
     const body = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
