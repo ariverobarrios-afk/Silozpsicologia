@@ -96,6 +96,13 @@ export interface Bono {
   created_at: string;
 }
 
+// Notas de una sesión (tabla aparte: el paciente nunca las ve).
+export interface SessionNotes {
+  appointment_id: string;
+  notes: string; // notas de la sesión ('' si no hay)
+  next_notes: string; // notas para la próxima sesión ('' si no hay)
+}
+
 // Evento de la agenda (tarea, reunión…): bloquea horas, sin paciente ni pago.
 export interface AgendaEvent {
   id: string;

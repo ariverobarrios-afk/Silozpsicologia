@@ -22,7 +22,8 @@ const AREA_PATHS = ["/acceso", "/acceso/nueva-contrasena", "/panel", "/mi-area"]
 // (la sesión no se recarga al navegar entre ellas); lo demás es 404.
 function Fallback() {
   const [location] = useLocation();
-  if (!AREA_PATHS.includes(location)) return <NotFound />;
+  const isArea = AREA_PATHS.includes(location) || location.startsWith("/panel/sesion/");
+  if (!isArea) return <NotFound />;
   return (
     <Suspense fallback={<div className="min-h-screen bg-background" />}>
       <AreaRoutes />

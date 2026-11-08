@@ -821,16 +821,31 @@ revoke all on function public.register_payment(text, uuid, date, text, boolean) 
 grant execute on function public.register_payment(text, uuid, date, text, boolean) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Notas de cada cita: lo que la psicóloga quiere tener a mano para esa sesión
--- (objetivos a trabajar, cosas importantes…). Se ven al pasar el ratón por la
--- cita en la agenda. Van en una tabla aparte, solo para administración: el
--- paciente puede leer sus citas, pero nunca estas notas.
+-- Notas de cada sesión (se escriben en la página de la sesión, /panel/sesion/<id>):
+-- · notes      → notas de la sesión.
+-- · next_notes → notas para la próxima sesión: la siguiente cita (no
+--   cancelada) del paciente las muestra, la haya reservado quien sea.
+-- Se ven también al pasar el ratón por la cita en la agenda. Van en una tabla
+-- aparte, solo para administración: el paciente puede leer sus citas, pero
+-- nunca estas notas.
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists public.appointment_notes (
   appointment_id uuid primary key references public.appointments (id) on delete cascade,
-  notes          text not null check (length(trim(notes)) > 0 and length(notes) <= 5000),
+  notes          text not null default '',
+  next_notes     text not null default '',
   updated_at     timestamptz not null default now()
 );
+-- Instalaciones anteriores: solo había `notes` y no podía quedar vacía.
+alter table public.appointment_notes add column if not exists next_notes text not null default '';
+alter table public.appointment_notes alter column notes set default '';
+alter table public.appointment_notes drop constraint if exists appointment_notes_notes_check;
+alter table public.appointment_notes add constraint appointment_notes_notes_check check (length(notes) <= 5000);
+alter table public.appointment_notes drop constraint if exists appointment_notes_next_notes_check;
+alter table public.appointment_notes add constraint appointment_notes_next_notes_check check (length(next_notes) <= 5000);
+-- Sin ninguna de las dos, la fila se borra en vez de quedar vacía.
+alter table public.appointment_notes drop constraint if exists appointment_notes_not_empty;
+alter table public.appointment_notes add constraint appointment_notes_not_empty
+  check (length(trim(notes)) > 0 or length(trim(next_notes)) > 0);
 alter table public.appointment_notes enable row level security;
 
 drop trigger if exists appointment_notes_touch_updated_at on public.appointment_notes;
