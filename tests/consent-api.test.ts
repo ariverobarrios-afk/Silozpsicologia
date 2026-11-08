@@ -7,7 +7,7 @@ import consentFile from "../api/consent-file";
 import { buildConsentPdf } from "../server/consentPdf";
 import { bytesToBase64, clientIp, decodeSignatureDataUrl, parseBody, sha256Hex, signatureHasInk } from "../server/consent";
 import { canonicalText, placeholderValues, renderTemplate } from "../shared/consent";
-import { migrationDocuments } from "./consentFixtures";
+import { migrationDocuments, migrationDocumentsSinDomicilio } from "./consentFixtures";
 
 // PNG RGBA de 8 bits como el que genera un canvas (fondo transparente).
 function crc32(buf: Uint8Array): number {
@@ -72,10 +72,9 @@ test("IP del cliente desde x-forwarded-for", () => {
 });
 
 test("los textos reales se renderizan sin placeholders pendientes y generan un PDF válido", async () => {
-  const docs = migrationDocuments();
-  assert.deepEqual(docs.map((d) => `${d.doc_type} ${d.version}`), ["privacy 2.0", "rules 2.0", "withdrawal 1.0"]);
+  const docs = migrationDocumentsSinDomicilio();
   const values = placeholderValues(
-    { responsable_nombre: "Silvia López Fernández", responsable_dni: "03933796Z", responsable_direccion: "C/ Antonio López nº 8, Cobisa (Toledo)", email_contacto: "silozpsicologia@gmail.com", iban: "ES34 2100 7823 6213 0025 8116", plataforma_videollamada: "Google Meet" },
+    { responsable_nombre: "Silvia López Fernández", responsable_dni: "03933796Z", email_contacto: "silozpsicologia@gmail.com", iban: "ES34 2100 7823 6213 0025 8116", plataforma_videollamada: "Google Meet" },
     { full_name: "Silvia López Fernández", dni: "03933796Z", collegiate_number: "M-40562", price_single_eur: 55, price_pack5_eur: 250, session_minutes: 50 }
   );
   const rendered = docs.map((d) => ({ ...d, ...renderTemplate(d.body_md, values) }));
@@ -91,7 +90,8 @@ test("los textos reales se renderizan sin placeholders pendientes y generan un P
     signedAt: new Date("2026-11-08T10:00:00Z"),
     patient: { name: "Ana", surname: "Pérez Núñez", idNumber: "12345678Z", email: "ana@example.com", phone: "", birthdate: "1990-01-31" },
     therapist: { full_name: "Silvia López Fernández", dni: "03933796Z", collegiate_number: "M-40562" },
-    responsable: { nombre: "Silvia López Fernández", dni: "03933796Z", direccion: "Cobisa", email: "silozpsicologia@gmail.com" },
+    responsable: { nombre: "Silvia López Fernández", dni: "03933796Z", email: "silozpsicologia@gmail.com" },
+    reissue: { reissuedAt: new Date("2026-11-09T10:00:00Z"), signedVersions: [{ label: "A", version: "2.0" }] },
     documents: rendered.map((d, i) => ({ label: "ABC"[i], title: d.title, version: d.version, text: d.text, checkbox_label: d.checkbox_label })),
     signaturePng: png(60, 20, [[5, 5], [6, 6], [7, 7]]),
     ip: "203.0.113.5",
@@ -115,4 +115,24 @@ test("endpoints sin configurar o sin sesión", async () => {
   const r3 = await consentFile(new Request("https://x/api/consent-file", { method: "GET" }));
   assert.equal(r3.status, 405);
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+});
+
+test("textos sin domicilio (A 2.1, B 2.1, C 1.1): sin dirección y con todos los datos", () => {
+  const docs = migrationDocumentsSinDomicilio();
+  assert.deepEqual(docs.map((d) => `${d.doc_type} ${d.version}`), ["privacy 2.1", "rules 2.1", "withdrawal 1.1"]);
+  const values = placeholderValues(
+    { responsable_nombre: "Silvia López Fernández", responsable_dni: "03933796Z", email_contacto: "silozpsicologia@gmail.com", iban: "ES34", plataforma_videollamada: "Google Meet" },
+    { full_name: "Silvia López Fernández", dni: "03933796Z", collegiate_number: "M-40562", price_single_eur: 55, price_pack5_eur: 250, session_minutes: 50 }
+  );
+  for (const d of docs) {
+    assert.doesNotMatch(d.body_md, /responsable_direccion|domicilio|dirección indicada|por escrito a/i, d.doc_type);
+    assert.deepEqual(renderTemplate(d.body_md, values).missing, [], d.doc_type);
+  }
+  // Los textos antiguos ya no se pueden emitir: piden un dato que ya no existe.
+  const old = migrationDocuments().find((d) => d.doc_type === "privacy")!;
+  assert.deepEqual(renderTemplate(old.body_md, values).missing, ["responsable_direccion"]);
+  // Fuera del domicilio, el texto es el mismo que el firmado.
+  const strip = (t: string) => t.replace(/\s+/g, " ");
+  const a20 = strip(old.body_md), a21 = strip(docs[0].body_md);
+  assert.equal(a21.split("**Conservación.**")[1].split("**Derechos.**")[0], a20.split("**Conservación.**")[1].split("**Derechos.**")[0]);
 });

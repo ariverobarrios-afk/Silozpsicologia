@@ -15,14 +15,22 @@ export interface ConsentPdfInput {
   signedAt: Date;
   patient: { name: string; surname: string; idNumber: string; email: string; phone: string; birthdate: string };
   therapist: { full_name: string; dni: string; collegiate_number: string | null };
-  responsable: { nombre: string; dni: string; direccion: string; email: string };
+  responsable: { nombre: string; dni: string; email: string };
   documents: Array<{ label: string; title: string; version: string; text: string; checkbox_label: string }>;
   signaturePng: Uint8Array;
   logoPng?: Uint8Array | null;
   ip: string | null;
   userAgent: string | null;
   renderedTextSha256: string;
+  // Copia reemitida de una firma anterior (p. ej. para quitar el domicilio):
+  // versiones que se firmaron y fecha de la reemisión.
+  reissue?: { reissuedAt: Date; signedVersions: Array<{ label: string; version: string }> };
 }
+
+// Versión de la plantilla del PDF (consents.pdf_template). 1 = con el domicilio
+// de la responsable; 2 = sin domicilio. Subirla hace que los PDF guardados con
+// una plantilla anterior se regeneren al descargarlos (server/consentReissue.ts).
+export const CURRENT_PDF_TEMPLATE = 2;
 
 const A4: [number, number] = [595.28, 841.89];
 const MARGIN = 56;
@@ -221,7 +229,6 @@ export async function buildConsentPdf(input: ConsentPdfInput): Promise<Uint8Arra
   w.rows([
     ["Nombre", input.responsable.nombre],
     ["DNI", input.responsable.dni],
-    ["Domicilio profesional", input.responsable.direccion],
     ["Contacto", input.responsable.email],
   ]);
   w.gap(6);
@@ -272,8 +279,14 @@ export async function buildConsentPdf(input: ConsentPdfInput): Promise<Uint8Arra
     ["Dirección IP", input.ip ?? "No disponible"],
     ["Navegador (user-agent)", input.userAgent ?? "No disponible"],
     ["ID del consentimiento", input.consentId],
-    ...input.documents.map((d): [string, string] => [`Versión bloque ${d.label}`, `${d.title}: ${d.version}`]),
-    ["SHA-256 del texto", input.renderedTextSha256],
+    ...(input.reissue
+      ? [
+          ...input.reissue.signedVersions.map((v): [string, string] => [`Versión firmada bloque ${v.label}`, v.version]),
+          ...input.documents.map((d): [string, string] => [`Versión de esta copia ${d.label}`, `${d.title}: ${d.version}`]),
+          ["Copia reemitida el", madridDateTime(input.reissue.reissuedAt)] as [string, string],
+        ]
+      : input.documents.map((d): [string, string] => [`Versión bloque ${d.label}`, `${d.title}: ${d.version}`])),
+    [input.reissue ? "SHA-256 del texto firmado" : "SHA-256 del texto", input.renderedTextSha256],
   ], 9);
   w.gap(10);
   w.text(
@@ -283,6 +296,16 @@ export async function buildConsentPdf(input: ConsentPdfInput): Promise<Uint8Arra
       "consentimiento (no puede incluirse dentro del propio archivo sin alterarla).",
     9, { color: MUTED }
   );
+  if (input.reissue) {
+    w.gap(6);
+    w.text(
+      "Esta es una copia reemitida de la firma original: la fecha y la hora, la firma, la IP y el navegador " +
+        "son los de la firma. Los textos son los mismos que se firmaron, sin el domicilio de la responsable del " +
+        "tratamiento (versiones posteriores que no cambian nada para el paciente). El texto firmado original y " +
+        "su huella SHA-256 se conservan en el registro del consentimiento.",
+      9, { color: MUTED }
+    );
+  }
 
   // ── Pie en todas las páginas ──
   const footer = makeSafe(regular)(`Documento firmado electrónicamente el ${madridDate(input.signedAt)} — ID ${input.consentId}`);

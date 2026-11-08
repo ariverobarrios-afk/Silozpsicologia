@@ -17,7 +17,6 @@ import {
 const settings = {
   responsable_nombre: "Silvia López Fernández",
   responsable_dni: "03933796Z",
-  responsable_direccion: "C/ Antonio López nº 8, Cobisa (Toledo)",
   email_contacto: "silozpsicologia@gmail.com",
   iban: "ES34 2100 7823 6213 0025 8116",
   plataforma_videollamada: "Google Meet",

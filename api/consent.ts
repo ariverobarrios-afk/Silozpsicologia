@@ -20,7 +20,8 @@
 // TURNSTILE_SECRET_KEY (opcional), APP_URL (opcional).
 import { appUrl, authenticate, json } from "../server/booking";
 import { enviarEmail, emailSencillo } from "../server/email";
-import { buildConsentPdf, madridDateTime } from "../server/consentPdf";
+import { CURRENT_PDF_TEMPLATE, buildConsentPdf, madridDateTime } from "../server/consentPdf";
+import { loadLogo } from "../server/consentReissue";
 import {
   CONSENT_FROM,
   RATE_LIMIT_PER_HOUR,
@@ -139,20 +140,15 @@ export default async function handler(req: Request): Promise<Response> {
     console.error("Consentimiento: placeholders sin valor", rendered.flatMap((d) => d.missing));
     return fail(500, "not_configured", "El consentimiento todavía no está disponible. Contacta con tu psicóloga.");
   }
-  const renderedTextSha256 = await sha256Hex(canonicalText(rendered.map((d) => ({ title: d.title, version: d.version, text: d.text, checkbox_label: d.checkbox_label }))));
+  const signedText = canonicalText(rendered.map((d) => ({ title: d.title, version: d.version, text: d.text, checkbox_label: d.checkbox_label })));
+  const renderedTextSha256 = await sha256Hex(signedText);
 
   // ── PDF ──
   const consentId = crypto.randomUUID();
   const signedAt = new Date();
   const userAgent = req.headers.get("user-agent")?.slice(0, 500) ?? null;
   const base = appUrl(req);
-  let logoPng: Uint8Array | null = null;
-  try {
-    const r = await fetch(`${base}/images/logo-reloj-arena.png`, { signal: AbortSignal.timeout(3000) });
-    if (r.ok) logoPng = new Uint8Array(await r.arrayBuffer());
-  } catch {
-    logoPng = null;
-  }
+  const logoPng = await loadLogo(base);
   const s = settings as ConsentSettings;
   const t = therapist as ConsentTherapist & { id: string; slug: string; email: string };
   const pdf = await buildConsentPdf({
@@ -160,7 +156,7 @@ export default async function handler(req: Request): Promise<Response> {
     signedAt,
     patient: { name: body.name, surname: body.surname, idNumber, email: profile.email, phone: body.phone, birthdate: body.birthdate },
     therapist: t,
-    responsable: { nombre: s.responsable_nombre, dni: s.responsable_dni, direccion: s.responsable_direccion, email: s.email_contacto },
+    responsable: { nombre: s.responsable_nombre, dni: s.responsable_dni, email: s.email_contacto },
     documents: rendered.map((d, i) => ({ label: "ABC"[i], title: d.title, version: d.version, text: d.text, checkbox_label: d.checkbox_label })),
     signaturePng,
     logoPng,
@@ -206,12 +202,17 @@ export default async function handler(req: Request): Promise<Response> {
     signed_at: signedAt.toISOString(),
     ip,
     user_agent: userAgent,
+    pdf_template: CURRENT_PDF_TEMPLATE,
   });
   if (insertError) {
     console.error("Consentimiento: fallo al guardar el registro", insertError.code);
     await bucket.remove([pngPath, pdfPath]);
     return fail(500, "db", "No se pudo guardar la firma. Inténtalo de nuevo.");
   }
+
+  // Copia literal del texto firmado (constancia, aunque cambien los ajustes).
+  const { error: snapshotError } = await admin.from("consent_text_snapshots").insert({ consent_id: consentId, rendered_text: signedText });
+  if (snapshotError) console.error("Consentimiento: no se guardó la copia del texto", snapshotError.code);
 
   // Escritura de vuelta en la ficha (un fallo aquí no anula la firma).
   const { error: profileError } = await admin

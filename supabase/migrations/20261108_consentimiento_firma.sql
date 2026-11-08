@@ -251,7 +251,7 @@ grant execute on function public.consent_context() to authenticated;
 insert into public.consent_settings
   (id, responsable_nombre, responsable_dni, responsable_direccion, email_contacto, iban, plataforma_videollamada)
 values
-  (1, 'Silvia López Fernández', '03933796Z', 'C/ Antonio López nº 8, Cobisa (Toledo)',
+  (1, 'Silvia López Fernández', '03933796Z', '',  -- sin domicilio: ver 20261109_consentimiento_sin_domicilio.sql
    'silozpsicologia@gmail.com', 'ES34 2100 7823 6213 0025 8116', 'Google Meet')
 on conflict (id) do nothing;
 

@@ -20,8 +20,7 @@ export interface ConsentDocument {
 export interface ConsentSettings {
   responsable_nombre: string;
   responsable_dni: string;
-  responsable_direccion: string;
-  email_contacto: string;
+  email_contacto: string; // la responsable se identifica con nombre, DNI y email (sin domicilio)
   iban: string;
   plataforma_videollamada: string;
 }
@@ -50,7 +49,6 @@ export function placeholderValues(
   return {
     responsable_nombre: settings.responsable_nombre,
     responsable_dni: settings.responsable_dni,
-    responsable_direccion: settings.responsable_direccion,
     email_contacto: settings.email_contacto,
     iban: settings.iban,
     plataforma_videollamada: settings.plataforma_videollamada,

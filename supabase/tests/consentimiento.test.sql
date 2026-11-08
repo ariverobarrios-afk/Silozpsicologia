@@ -34,6 +34,13 @@ insert into public.profiles (id, role, full_name, email, psychologist_id, active
 -- Los textos y ajustes iniciales están cargados.
 select pg_temp.ok((select count(*) from public.current_document_versions()) = 3, 'tres documentos vigentes');
 select pg_temp.ok((select iban from public.consent_settings) like 'ES34%', 'ajustes del centro cargados');
+-- Sin domicilio: ni en los ajustes ni en los textos vigentes.
+select pg_temp.ok((select coalesce(responsable_direccion, '') from public.consent_settings) = '', 'ajustes sin domicilio');
+select pg_temp.ok(not exists (select 1 from public.current_document_versions()
+                               where body_md like '%responsable_direccion%' or body_md ilike '%domicilio%'),
+  'textos vigentes sin domicilio');
+select pg_temp.ok((select string_agg(version, ',' order by doc_type) from public.current_document_versions()) = '2.1,2.1,1.1',
+  'vigentes: A 2.1, B 2.1, C 1.1');
 
 -- Sin psicóloga en therapists, la página avisa de que no está lista.
 set role authenticated;
@@ -84,9 +91,9 @@ insert into public.consents (id, patient_id, therapist_id, patient_name, patient
   signature_png_path, pdf_path, pdf_sha256, rendered_text_sha256, ip, user_agent)
 select '00000000-0000-0000-0000-0000000000c1', :'p1', t.id, 'Ana', 'Pérez', '12345678Z', 'p1@example.com',
        '1990-01-01',
-       (select id from public.document_versions where doc_type = 'privacy'),
-       (select id from public.document_versions where doc_type = 'rules'),
-       (select id from public.document_versions where doc_type = 'withdrawal'),
+       (select id from public.document_versions where doc_type = 'privacy' and version = '2.0'),
+       (select id from public.document_versions where doc_type = 'rules' and version = '2.0'),
+       (select id from public.document_versions where doc_type = 'withdrawal' and version = '1.0'),
        true, true, true, 'silvia/2026/x.png', 'silvia/2026/x.pdf', repeat('a', 64), repeat('b', 64),
        '203.0.113.7', 'Prueba'
   from public.therapists t;
@@ -98,7 +105,13 @@ select pg_temp.expect_error($$insert into public.consents (patient_id, therapist
   select null, t.id, 'a', 'b', 'c', 'd', '2000-01-01', v.id, v.id, v.id, true, false, true, 'x', 'y',
          repeat('a', 64), repeat('b', 64) from public.therapists t, public.document_versions v limit 1$$,
   'accepted_rules');
-select pg_temp.ok(public.consent_status_for(:'p1') = 'firmado', 'tras firmar: firmado');
+select pg_temp.ok(public.consent_status_for(:'p1') = 'firmado', 'tras firmar (versiones 2.0): firmado, las 2.1 sin domicilio no piden refirmar');
+-- Copia reemitida: de la versión firmada a sus sucesoras sin refirma (sin domicilio).
+select pg_temp.ok((select string_agg(doc_type || ' ' || version, ', ' order by doc_type)
+                     from public.consent_reissue_versions('00000000-0000-0000-0000-0000000000c1'))
+                  = 'privacy 2.1, rules 2.1, withdrawal 1.1', 'reemisión con las versiones sin domicilio');
+select pg_temp.ok((select pdf_template from public.consents where id = '00000000-0000-0000-0000-0000000000c1') = 1,
+  'firma anterior: PDF con la plantilla 1');
 select pg_temp.ok(public.consent_status_for(:'p2') = 'pendiente', 'otro paciente sigue pendiente');
 
 -- Las firmas no se modifican ni se borran.
@@ -111,15 +124,15 @@ select pg_temp.expect_error($$delete from public.document_versions$$, 'versión 
 -- ── Versión nueva de un texto ───────────────────────────────────────────────
 -- Cambio menor (no pide volver a firmar): sigue firmado.
 insert into public.document_versions (doc_type, version, title, body_md, checkbox_label, effective_from, requires_resign)
-values ('rules', '2.1', 'Normas del servicio', 'Texto 2.1', 'Acepto', current_date, false);
+values ('rules', '2.2', 'Normas del servicio', 'Texto 2.2', 'Acepto', (now() at time zone 'Europe/Madrid')::date, false);
 select pg_temp.ok(public.consent_status_for(:'p1') = 'firmado', 'versión sin refirma: sigue firmado');
 -- Una versión con fecha futura aún no cuenta.
 insert into public.document_versions (doc_type, version, title, body_md, checkbox_label, effective_from)
-values ('privacy', '3.0', 'Protección de datos', 'Texto 3.0', 'Acepto', current_date + 30);
+values ('privacy', '3.0', 'Protección de datos', 'Texto 3.0', 'Acepto', (now() at time zone 'Europe/Madrid')::date + 30);
 select pg_temp.ok(public.consent_status_for(:'p1') = 'firmado', 'versión futura: sigue firmado');
 -- Versión vigente que pide refirma: pasa a «actualización».
 insert into public.document_versions (doc_type, version, title, body_md, checkbox_label, effective_from)
-values ('withdrawal', '1.1', 'Desistimiento', 'Texto 1.1', 'Acepto', current_date);
+values ('withdrawal', '1.2', 'Desistimiento', 'Texto 1.2', 'Acepto', (now() at time zone 'Europe/Madrid')::date);
 select pg_temp.ok(public.consent_status_for(:'p1') = 'actualizacion', 'versión con refirma: actualización');
 reset role;
 

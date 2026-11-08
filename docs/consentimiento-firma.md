@@ -55,11 +55,10 @@ Todas las páginas llevan el pie «Documento firmado electrónicamente el … �
 - Bucket `consents`: privado, sin políticas (solo `service_role`).
 - **RLS activado y sin políticas** en las tablas nuevas. El navegador solo llama a `consent_context()` (el paciente, su propia página de firma) y `consent_overview(paciente)` (el propio paciente o la administración).
 
-Textos cargados: A protección de datos **2.0**, B normas **2.0**, C desistimiento **1.0**. Están literales del brief, con vigencia desde el 08/11/2026.
+Textos vigentes: A protección de datos **2.1**, B normas **2.1**, C desistimiento **1.1** (desde el 09/11/2026). Son los del brief (A 2.0, B 2.0, C 1.0, del 08/11/2026) sin el domicilio de la responsable: ver «Sin domicilio».
 
 Valores actuales:
 - Silvia López Fernández, DNI 03933796Z, colegiada M-40562.
-- C/ Antonio López nº 8, Cobisa (Toledo).
 - `silozpsicologia@gmail.com`.
 - IBAN ES34 2100 7823 6213 0025 8116 (el del documento anterior).
 - Google Meet, sesiones de 50 minutos, 55 € la sesión y 250 € el bono de 5.
@@ -70,6 +69,24 @@ update public.consent_settings set block_booking_until_consent = true where id =
 -- Cambiar un dato del centro (se aplica a las firmas nuevas; las antiguas no cambian)
 update public.consent_settings set plataforma_videollamada = 'Zoom' where id = 1;
 ```
+
+## Sin domicilio (09/11/2026, `20261109_consentimiento_sin_domicilio.sql`)
+
+El domicilio de la responsable del tratamiento era su domicilio particular. Por eso deja de aparecer en todo lo que ve el paciente: la responsable se identifica con su nombre, su DNI y el email de contacto (RGPD, art. 13).
+
+- **Textos A 2.1, B 2.1 y C 1.1:** son los mismos que A 2.0, B 2.0 y C 1.0 sin el domicilio. Los derechos, las reclamaciones y el desistimiento se ejercen por email, y el modelo de formulario va dirigido a nombre + email. Llevan `requires_resign = false`, así que **quien ya firmó no tiene que volver a firmar**. `supersedes_id` enlaza cada versión con la que sustituye.
+- **Ajustes:** `consent_settings.responsable_direccion` se ha vaciado. La columna se deja sin uso para que `schema.sql` se pueda volver a ejecutar.
+- **PDF:** desaparece la fila «Domicilio profesional».
+- **Constancia de lo firmado:** `consent_text_snapshots` guarda el texto canónico tal como se firmó.
+  - Para las firmas anteriores se reconstruyó en la migración y se comprobó contra `consents.rendered_text_sha256`.
+  - Las firmas nuevas lo guardan al firmar.
+  - Es el único sitio donde queda el domicilio, sin acceso desde la web (RLS sin políticas).
+- **PDF ya guardados:** se guardan como archivo en Storage (no se generan al vuelo). Cada consentimiento lleva `consents.pdf_template` (1 = con domicilio).
+  - Al descargar (`api/consent-file.ts`), si el PDF es de una plantilla anterior a `CURRENT_PDF_TEMPLATE`, se **regenera y sustituye** el archivo y se anota en `consent_reissues` (`server/consentReissue.ts`). Si no se puede regenerar, no se sirve el antiguo.
+  - En bloque: `scripts/reissue-consent-pdfs.ts`, idempotente.
+  - La copia reemitida conserva la fecha y la hora, la firma, la IP, el navegador y la huella del texto firmado, e indica las versiones firmadas, las de la copia y la fecha de reemisión.
+  - `consents` no cambia: `pdf_sha256` sigue siendo la huella del PDF original. La del archivo vigente está en `consent_reissues.pdf_sha256`.
+- **Facturas:** siguen llevando el domicilio del emisor, porque la normativa de facturación lo exige (decisión del cliente).
 
 ## Variables de entorno (Vercel)
 

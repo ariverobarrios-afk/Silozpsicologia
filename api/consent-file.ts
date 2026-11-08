@@ -6,7 +6,8 @@
 // Devuelve una URL firmada de Supabase Storage que caduca en 1 hora. Solo
 // para el propio paciente o para la administración (la psicóloga). El bucket
 // es privado y no tiene políticas: sin esta función no se puede descargar.
-import { authenticate, json } from "../server/booking";
+import { appUrl, authenticate, json } from "../server/booking";
+import { reissueConsentPdf } from "../server/consentReissue";
 
 export const config = { runtime: "edge" };
 
@@ -32,6 +33,14 @@ export default async function handler(req: Request): Promise<Response> {
   const isAdmin = caller?.role === "admin" && caller.active;
   if (!consent || (!isAdmin && consent.patient_id !== userId)) {
     return json({ success: false, message: "Documento no encontrado" }, 404);
+  }
+
+  // Si el PDF guardado es de una plantilla anterior (p. ej. con el domicilio),
+  // se regenera antes de descargarlo. Si no se puede, no se sirve el antiguo.
+  const reissue = await reissueConsentPdf(admin, consentId, { baseUrl: appUrl(req) });
+  if (!reissue.ok) {
+    console.error("Consentimiento: no se pudo reemitir el PDF", reissue.error);
+    return json({ success: false, message: "No se pudo preparar la descarga. Inténtalo más tarde." }, 500);
   }
 
   const fileName = `Consentimiento-Siloz-Psicologia-${String(consent.signed_at).slice(0, 10)}.pdf`;

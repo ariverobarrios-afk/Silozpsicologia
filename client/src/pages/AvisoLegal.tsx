@@ -32,6 +32,10 @@ export default function AvisoLegal() {
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
                 <li><strong>Denominación:</strong> Siloz Psicología</li>
                 <li><strong>Responsable:</strong> Silvia López</li>
+                <li><strong>NIF:</strong> 03933796Z</li>
+                <li><strong>Colegio profesional:</strong> Colegio Oficial de la Psicología de Madrid</li>
+                <li><strong>Nº de colegiada:</strong> M-40562</li>
+                <li><strong>Titulación:</strong> Psicóloga General Sanitaria (título expedido en España)</li>
                 <li><strong>Actividad:</strong> Servicios de Psicología Online</li>
                 <li><strong>Sitio web:</strong> silozpsicologia.com</li>
                 <li><strong>Email de contacto:</strong> silozpsicologia@gmail.com</li>
@@ -70,7 +74,8 @@ export default function AvisoLegal() {
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
                 <li>Gestionar las consultas y solicitudes de información realizadas por los usuarios</li>
                 <li>Facilitar el contacto para la reserva de citas y sesiones de terapia</li>
-                <li>Gestionar la agenda de citas de los pacientes en terapia y permitirles consultarlas en su área privada</li>
+                <li>Gestionar la agenda de citas de los pacientes en terapia y permitirles consultarlas, reservarlas y cancelarlas en su área privada</li>
+                <li>Recoger y conservar la firma del consentimiento informado y de las normas del servicio</li>
                 <li>Llevar el control administrativo de los pagos de las sesiones y bonos</li>
                 <li>Enviar información sobre los servicios de psicología ofrecidos</li>
                 <li>Cumplir con las obligaciones legales aplicables</li>
@@ -83,7 +88,7 @@ export default function AvisoLegal() {
                 La base legal para el tratamiento de los datos del formulario de contacto es el consentimiento expreso del interesado, otorgado mediante el envío del formulario. El usuario puede retirar su consentimiento en cualquier momento, sin que ello afecte a la licitud del tratamiento basado en el consentimiento previo a su retirada.
               </p>
               <p className="text-muted-foreground leading-relaxed mt-4">
-                Los datos del área privada de pacientes se tratan para la prestación del servicio de psicología solicitado por el paciente (art. 6.1.b RGPD) y, dado que la asistencia psicológica puede revelar información relativa a la salud, al amparo del art. 9.2.h RGPD (prestación de asistencia sanitaria), bajo el deber de secreto profesional. Los datos de facturación y pagos se conservan además para el cumplimiento de obligaciones legales (art. 6.1.c RGPD).
+                Los datos del área privada de pacientes se tratan para la prestación del servicio de psicología solicitado por el paciente (art. 6.1.b RGPD) y, dado que la asistencia psicológica puede revelar información relativa a la salud, con el consentimiento explícito que el paciente presta al firmar el consentimiento informado en su área privada (art. 9.2.a RGPD) y al amparo del art. 9.2.h RGPD (prestación de asistencia sanitaria), bajo el deber de secreto profesional. Los datos de facturación y pagos se conservan además para el cumplimiento de obligaciones legales (art. 6.1.c RGPD).
               </p>
 
               <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
@@ -97,15 +102,17 @@ export default function AvisoLegal() {
                 3.5. Área Privada de Pacientes
               </h3>
               <p className="text-muted-foreground leading-relaxed">
-                Las personas que están en proceso terapéutico pueden disponer, por invitación de la psicóloga, de un acceso privado en este sitio web para consultar sus citas. En el área privada se tratan únicamente:
+                Las personas que están en proceso terapéutico pueden disponer, por invitación de la psicóloga, de un acceso privado en este sitio web para consultar y reservar sus citas, firmar el consentimiento informado y descargar sus documentos y facturas. En el área privada se tratan:
               </p>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
-                <li>Datos identificativos y de contacto: nombre, email y, opcionalmente, teléfono</li>
-                <li>Datos de la agenda: fecha, hora, duración y estado de cada cita</li>
-                <li>Datos administrativos: tipo de proceso (individual o de pareja), tarifa aplicada, bonos y estado de los pagos</li>
+                <li>Datos identificativos y de contacto: nombre y apellidos, DNI/NIE, fecha de nacimiento, email y, opcionalmente, teléfono</li>
+                <li>Datos de la agenda: fecha, hora, duración y estado de cada cita, incluidas las que el paciente reserve o cancele desde su área</li>
+                <li>Datos administrativos: tipo de proceso (individual o de pareja), tarifa aplicada, bonos, estado de los pagos y facturas</li>
+                <li>Documentos firmados: el consentimiento informado y las normas del servicio, en PDF, con la firma manuscrita y las evidencias de la firma (fecha y hora, dirección IP y navegador desde el que se firmó)</li>
+                <li>Notas de sesión que la psicóloga registra para el seguimiento terapéutico</li>
               </ul>
               <p className="text-muted-foreground leading-relaxed mt-4">
-                En el área privada <strong>no se registran notas clínicas ni el contenido de las sesiones</strong>. El acceso está protegido con contraseña personal; cada paciente solo puede ver su propia información y únicamente la psicóloga puede crear o modificar citas. Las comunicaciones viajan cifradas y los datos se almacenan en servidores ubicados en la Unión Europea. El paciente puede solicitar en cualquier momento la desactivación de su acceso o la supresión de sus datos, sin perjuicio de los plazos de conservación legalmente obligatorios.
+                Las <strong>notas de sesión</strong> solo las ve la psicóloga: el paciente no tiene acceso a ellas desde su área. El acceso está protegido con contraseña personal y cada paciente solo puede ver su propia información. El paciente puede reservar y cancelar citas en los huecos que abra la psicóloga; el resto de cambios en la agenda solo los hace la psicóloga. Las comunicaciones viajan cifradas y los datos se almacenan en servidores ubicados en la Unión Europea. El paciente puede solicitar en cualquier momento la desactivación de su acceso o la supresión de sus datos, sin perjuicio de los plazos de conservación legalmente obligatorios.
               </p>
 
               <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
@@ -115,10 +122,11 @@ export default function AvisoLegal() {
                 Los datos personales no serán cedidos a terceros, salvo obligación legal. Para prestar el servicio se utilizan los siguientes proveedores, que actúan como encargados del tratamiento con los que se han suscrito los correspondientes contratos de encargo:
               </p>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
-                <li><strong>Supabase:</strong> base de datos y autenticación del área privada (servidores en Fráncfort, Alemania, UE)</li>
-                <li><strong>Resend:</strong> envío de los emails de acceso al área privada (región de envío en Irlanda, UE)</li>
+                <li><strong>Supabase:</strong> base de datos, autenticación y almacenamiento de los documentos firmados del área privada (servidores en Fráncfort, Alemania, UE)</li>
+                <li><strong>Resend:</strong> envío de los emails del área privada: acceso, avisos de citas y copia firmada del consentimiento (región de envío en Irlanda, UE)</li>
                 <li><strong>Vercel:</strong> alojamiento del sitio web</li>
                 <li><strong>Google (Gmail y Google Sheets):</strong> recepción y registro de las solicitudes del formulario de contacto</li>
+                <li><strong>Google Meet:</strong> plataforma de videollamada de las sesiones online</li>
               </ul>
               <p className="text-muted-foreground leading-relaxed mt-4">
                 Algunos de estos proveedores tienen sede en Estados Unidos. En esos casos, las posibles transferencias internacionales de datos se amparan en las garantías previstas en el RGPD, como el Marco de Privacidad de Datos UE-EE. UU. o las cláusulas contractuales tipo aprobadas por la Comisión Europea.
