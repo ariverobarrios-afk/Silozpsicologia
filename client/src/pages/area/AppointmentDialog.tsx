@@ -318,7 +318,11 @@ export function AppointmentDialog({
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{appointment ? "Editar cita" : "Nueva cita"}</DialogTitle>
-          <DialogDescription>El paciente verá esta cita en su área privada.</DialogDescription>
+          <DialogDescription>
+            {appointment?.origin === "reserva_paciente"
+              ? "Reservada por el paciente desde su área privada. Puedes editarla, cobrarla o cancelarla como cualquier otra."
+              : "El paciente verá esta cita en su área privada."}
+          </DialogDescription>
         </DialogHeader>
 
         {appointment && (
