@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
-import { Route, Switch, useLocation } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
@@ -37,6 +37,8 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/aviso-legal"} component={AvisoLegal} />
+      {/* La política de privacidad está en el aviso legal (apartado 3). */}
+      <Route path={"/politica-privacidad"}><Redirect to="/aviso-legal" /></Route>
       <Route path={"/ansiedad"} component={Ansiedad} />
       <Route path={"/depresion"} component={Depresion} />
       <Route path={"/blog"} component={Blog} />

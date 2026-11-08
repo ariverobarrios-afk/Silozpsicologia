@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "date-fns";
 import { ArrowLeft, CalendarPlus, FileText, IdCard, Mail, Pencil, Ticket } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +26,8 @@ import { billablePayments, invoiceCode, openInvoice, type BillablePayment } from
 import { IssueDialog } from "./Invoicing";
 import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoUsed, euros, isPendingPayment } from "@/lib/tariffs";
 import { AppointmentItem } from "./AppointmentItem";
+import { ConsentCard } from "./ConsentDocuments";
+import { fetchConsentOverview, type ConsentOverview } from "@/lib/consent";
 import { PaymentDialog } from "./PaymentDialog";
 import { ShowMoreList } from "./ShowMoreList";
 import { formatDay, formatDayTitle, formatTime } from "./format";
@@ -120,6 +122,13 @@ export function PatientProfile({
     toast.success("Pago marcado como «no facturar». Se puede recuperar en Pagos → Facturas.");
     onChanged();
   };
+
+  // Estado del consentimiento (lo firma el paciente desde su área; aquí solo se consulta).
+  const [consent, setConsent] = useState<ConsentOverview | null | undefined>(undefined);
+  useEffect(() => {
+    setConsent(undefined);
+    fetchConsentOverview(p.id).then(setConsent);
+  }, [p.id]);
 
   const own = appointments.filter((a) => a.patient_id === p.id);
   const upcoming = own.filter((a) => new Date(a.starts_at).getTime() >= now && a.status === "programada");
@@ -362,6 +371,23 @@ export function PatientProfile({
                   );
                 })}
               </ShowMoreList>
+            )}
+          </Section>
+
+          <Section title="Consentimiento">
+            {consent === undefined ? (
+              <p className="text-sm text-muted-foreground">Cargando…</p>
+            ) : (
+              <>
+                <ConsentCard overview={consent} canSign={false} />
+                {consent && consent.status !== "firmado" && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {p.invited_at
+                      ? "Le aparece como pendiente en su área: no tienes que hacer nada."
+                      : "Lo verá pendiente en su área en cuanto tenga acceso (envíale la invitación)."}
+                  </p>
+                )}
+              </>
             )}
           </Section>
 
