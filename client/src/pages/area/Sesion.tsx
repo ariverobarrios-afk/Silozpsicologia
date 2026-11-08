@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useLocation, useRoute } from "wouter";
-import { ArrowLeft, ChevronLeft, ChevronRight, NotebookPen, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronLeft, ChevronRight, CloudOff, Loader2, NotebookPen, User } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,45 @@ import { nextSession, previousSession } from "./sessionNotes";
 // siguiente cita del paciente hereda la reserve quien la reserve.
 
 const MAX = 5000;
+const AUTOSAVE_MS = 1500; // se guarda al dejar de escribir este tiempo
+const RETRY_MS = 5000;
+
+// Borrador local mientras hay cambios sin guardar: si se cierra la pestaña o
+// el móvil la descarta, se recupera al volver. Se borra al guardarse y al
+// cerrar sesión (AuthContext). `base` = lo que había guardado al empezar a
+// escribir, para no pisar cambios hechos después desde otro dispositivo.
+export const DRAFT_PREFIX = "siloz:notas-borrador:";
+type Draft = { notes: string; next: string; base: { notes: string; next: string }; at: string };
+const readDraft = (id: string): Draft | null => {
+  try { return JSON.parse(localStorage.getItem(DRAFT_PREFIX + id) || "null"); } catch { return null; }
+};
+const writeDraft = (id: string, d: Draft) => {
+  try { localStorage.setItem(DRAFT_PREFIX + id, JSON.stringify(d)); } catch { /* sin almacenamiento */ }
+};
+const clearDraft = (id: string) => {
+  try { localStorage.removeItem(DRAFT_PREFIX + id); } catch { /* sin almacenamiento */ }
+};
+
+type SaveState =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "saving" }
+  | { kind: "saved"; at: Date }
+  | { kind: "offline" }
+  | { kind: "error" };
+
+function SaveStatus({ state, dirty }: { state: SaveState; dirty: boolean }) {
+  const base = "flex items-center gap-1.5 text-sm";
+  if (state.kind === "saving") return <span className={`${base} text-muted-foreground`}><Loader2 className="size-4 animate-spin" /> Guardando…</span>;
+  if (state.kind === "offline") return <span className={`${base} text-amber-700`}><CloudOff className="size-4" /> Sin conexión: se guardará al volver</span>;
+  if (state.kind === "error") return <span className={`${base} text-destructive`}><AlertTriangle className="size-4" /> No se pudo guardar. Reintentando…</span>;
+  if (dirty) return <span className={`${base} text-muted-foreground`}>Cambios sin guardar…</span>;
+  if (state.kind === "saved") {
+    const hh = state.at.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    return <span className={`${base} text-primary`}><Check className="size-4" /> Guardado a las {hh}</span>;
+  }
+  return <span className={`${base} text-muted-foreground`}>Se guarda solo mientras escribes.</span>;
+}
 
 function SesionContent({ id }: { id: string }) {
   const [, setLocation] = useLocation();
@@ -27,7 +66,16 @@ function SesionContent({ id }: { id: string }) {
   const [state, setState] = useState<"loading" | "ready" | "notfound" | "error">("loading");
   const [notes, setNotes] = useState("");
   const [nextNotes, setNextNotes] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
+  // Lo último guardado en la base de datos (recortado) y lo que hay escrito ahora.
+  const saved = useRef({ notes: "", next: "" });
+  const latest = useRef({ notes: "", next: "" });
+  latest.current = { notes, next: nextNotes };
+  const saving = useRef(false);
+  const again = useRef(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Borrador de este dispositivo que no se recupera solo (las notas cambiaron en otro sitio).
+  const [conflict, setConflict] = useState<Draft | null>(null);
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -52,8 +100,23 @@ function SesionContent({ id }: { id: string }) {
     setPatient((p.data as Profile | null) ?? null);
     setAll(appts);
     setNotesMap(map);
-    setNotes(map.get(appt.id)?.notes ?? "");
-    setNextNotes(map.get(appt.id)?.next_notes ?? "");
+    const server = { notes: map.get(appt.id)?.notes ?? "", next: map.get(appt.id)?.next_notes ?? "" };
+    saved.current = server;
+    setNotes(server.notes);
+    setNextNotes(server.next);
+    // ¿Quedó algo sin guardar en este dispositivo?
+    const draft = readDraft(appt.id);
+    if (draft && (draft.notes.trim() !== server.notes || draft.next.trim() !== server.next)) {
+      if (draft.base.notes === server.notes && draft.base.next === server.next) {
+        setNotes(draft.notes);
+        setNextNotes(draft.next);
+        toast.info("Se han recuperado notas que no llegaron a guardarse. Se guardan ahora.");
+      } else {
+        setConflict(draft);
+      }
+    } else if (draft) {
+      clearDraft(appt.id);
+    }
     setState("ready");
     window.scrollTo({ top: 0 });
   }, [id]);
@@ -62,9 +125,71 @@ function SesionContent({ id }: { id: string }) {
     load();
   }, [load]);
 
-  const savedNotes = notesMap.get(id)?.notes ?? "";
-  const savedNext = notesMap.get(id)?.next_notes ?? "";
-  const dirty = notes.trim() !== savedNotes.trim() || nextNotes.trim() !== savedNext.trim();
+  const isDirty = () =>
+    latest.current.notes.trim() !== saved.current.notes || latest.current.next.trim() !== saved.current.next;
+  const dirty = state === "ready" && (notes.trim() !== saved.current.notes || nextNotes.trim() !== saved.current.next);
+
+  // Guarda lo último escrito. Nunca hay dos guardados a la vez: si llega un
+  // cambio mientras se guarda, se vuelve a guardar al terminar.
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
+    if (saving.current) { again.current = true; return false; }
+    const row = { appointment_id: id, notes: latest.current.notes.trim(), next_notes: latest.current.next.trim() };
+    if (row.notes === saved.current.notes && row.next_notes === saved.current.next) return true;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSaveState({ kind: "offline" });
+      return false;
+    }
+    saving.current = true;
+    setSaveState({ kind: "saving" });
+    const { error } = row.notes || row.next_notes
+      ? await supabase!.from("appointment_notes").upsert(row)
+      : await supabase!.from("appointment_notes").delete().eq("appointment_id", id);
+    saving.current = false;
+    if (error) {
+      setSaveState({ kind: navigator.onLine === false ? "offline" : "error" });
+      retryTimer.current = setTimeout(() => { void saveNow(); }, RETRY_MS);
+      return false;
+    }
+    saved.current = { notes: row.notes, next: row.next_notes };
+    setNotesMap((m) => new Map(m).set(id, row));
+    setSaveState({ kind: "saved", at: new Date() });
+    if (again.current) {
+      again.current = false;
+      return saveNow();
+    }
+    if (!isDirty()) clearDraft(id);
+    return true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Al escribir: borrador local al momento y guardado al dejar de escribir.
+  useEffect(() => {
+    if (state !== "ready" || !isDirty()) return;
+    const prev = readDraft(id);
+    writeDraft(id, { notes, next: nextNotes, base: prev?.base ?? { ...saved.current }, at: new Date().toISOString() });
+    setSaveState((s) => (s.kind === "saving" || s.kind === "offline" || s.kind === "error" ? s : { kind: "pending" }));
+    const t = setTimeout(() => { void saveNow(); }, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, nextNotes, state, id, saveNow]);
+
+  // Al recuperar la conexión, al ocultar la pestaña (cambiar de app en el
+  // móvil) o al salir: se guarda en ese momento.
+  useEffect(() => {
+    const flush = () => { if (isDirty()) void saveNow(); };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("online", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveNow]);
 
   // Aviso al cerrar la pestaña con cambios sin guardar.
   useEffect(() => {
@@ -74,8 +199,12 @@ function SesionContent({ id }: { id: string }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  const go = (to: string) => {
-    if (dirty && !window.confirm("Tienes cambios sin guardar en las notas. ¿Salir sin guardar?")) return;
+  // Al navegar dentro de la app se guarda antes; solo se pregunta si no se ha podido.
+  const go = async (to: string) => {
+    if (isDirty()) {
+      await saveNow();
+      if (isDirty() && !window.confirm("No se han podido guardar los últimos cambios de las notas (se conservan como borrador en este dispositivo). ¿Salir igualmente?")) return;
+    }
     setLocation(to);
   };
   // Enlaces de verdad (se pueden abrir en otra pestaña); el clic normal
@@ -85,26 +214,10 @@ function SesionContent({ id }: { id: string }) {
     onClick: (e: MouseEvent<HTMLAnchorElement>) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
-      go(to);
+      void go(to);
     },
   });
 
-  const save = async () => {
-    setBusy(true);
-    const row = { appointment_id: id, notes: notes.trim(), next_notes: nextNotes.trim() };
-    const { error } = row.notes || row.next_notes
-      ? await supabase!.from("appointment_notes").upsert(row)
-      : await supabase!.from("appointment_notes").delete().eq("appointment_id", id);
-    setBusy(false);
-    if (error) {
-      toast.error("No se pudieron guardar las notas. Vuelve a intentarlo.");
-      return;
-    }
-    setNotesMap(new Map(notesMap).set(id, row));
-    setNotes(row.notes);
-    setNextNotes(row.next_notes);
-    toast.success("Notas guardadas.");
-  };
 
   if (state === "loading") {
     return (
@@ -164,6 +277,26 @@ function SesionContent({ id }: { id: string }) {
           )}
         </section>
 
+        {conflict && (
+          <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p>
+              <strong>Hay notas de este dispositivo que no llegaron a guardarse</strong> ({new Date(conflict.at).toLocaleString("es-ES")}),
+              pero desde entonces las notas se han cambiado en otro sitio. ¿Qué quieres conservar?
+            </p>
+            <div className="max-h-40 overflow-y-auto whitespace-pre-line rounded-md border border-amber-200 bg-white/70 p-2 text-xs">
+              {conflict.notes || "—"}{conflict.next ? `\n\nPara la próxima: ${conflict.next}` : ""}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => {
+                setNotes(conflict.notes); setNextNotes(conflict.next);
+                writeDraft(id, { ...conflict, base: { ...saved.current } });
+                setConflict(null);
+              }}>Usar el borrador</Button>
+              <Button size="sm" variant="ghost" onClick={() => { clearDraft(id); setConflict(null); }}>Descartarlo</Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
           <Label htmlFor="session-notes">Notas de la sesión</Label>
           <Textarea id="session-notes" rows={8} className="min-h-40" maxLength={MAX} value={notes}
@@ -184,9 +317,10 @@ function SesionContent({ id }: { id: string }) {
           </p>
         </div>
 
-        <div className="flex justify-end">
-          <Button onClick={save} disabled={busy || !dirty} className="rounded-full">
-            {busy ? "Guardando…" : dirty ? "Guardar notas" : "Guardado"}
+        <div className="flex flex-wrap items-center justify-between gap-3" aria-live="polite">
+          <SaveStatus state={saveState} dirty={dirty} />
+          <Button onClick={() => void saveNow()} disabled={!dirty || saveState.kind === "saving"} variant="outline" className="rounded-full">
+            Guardar ahora
           </Button>
         </div>
 

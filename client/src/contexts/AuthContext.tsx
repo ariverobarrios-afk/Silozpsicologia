@@ -52,6 +52,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
+    // Borradores de notas de sesión guardados en este dispositivo (ver
+    // pages/area/Sesion.tsx → DRAFT_PREFIX): no se dejan al cerrar sesión.
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("siloz:notas-borrador:")) localStorage.removeItem(key);
+      }
+    } catch {
+      // sin almacenamiento local
+    }
     await supabase?.auth.signOut();
   };
 
