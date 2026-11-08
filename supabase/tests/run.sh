@@ -27,12 +27,13 @@ fresh_db() {
   "${PSQL[@]}" "$DB_URL" -f supabase/schema.sql >/dev/null 2>&1
 }
 
-echo "· schema.sql contiene la migración de reserva de citas"
+echo "· schema.sql contiene las migraciones"
 python3 - <<'PY'
 import sys
 schema = open("supabase/schema.sql").read()
-mig = open("supabase/migrations/20261106_reserva_citas_paciente.sql").read()
-sys.exit(0 if mig.strip() in schema else "schema.sql no incluye la migración tal cual")
+for f in ("20261106_reserva_citas_paciente.sql", "20261108_consentimiento_firma.sql"):
+    if open("supabase/migrations/" + f).read().strip() not in schema:
+        sys.exit("schema.sql no incluye tal cual la migración " + f)
 PY
 
 echo "· aplicar schema.sql dos veces (idempotente)"
@@ -41,6 +42,10 @@ fresh_db
 
 echo "· reglas de negocio y autorización"
 "${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/reserva_citas.test.sql 2>&1 | grep -v NOTICE
+
+echo "· firma del consentimiento: estado, permisos e inmutabilidad"
+fresh_db
+"${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/consentimiento.test.sql 2>&1 | grep -v NOTICE
 
 echo "· 10 pacientes reservan el mismo hueco a la vez"
 fresh_db

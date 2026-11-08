@@ -5,6 +5,7 @@ import Acceso from "./Acceso";
 import NuevaContrasena from "./NuevaContrasena";
 import Panel from "./Panel";
 import MiArea from "./MiArea";
+import Consentimiento from "./Consentimiento";
 import Sesion from "./Sesion";
 import { useAreaManifest, useNoIndex } from "./AreaLayout";
 
@@ -21,6 +22,7 @@ export default function AreaRoutes() {
         <Route path="/panel" component={Panel} />
         <Route path="/panel/sesion/:id" component={Sesion} />
         <Route path="/mi-area" component={MiArea} />
+        <Route path="/mi-area/consentimiento" component={Consentimiento} />
         <Route component={NotFound} />
       </Switch>
     </AuthProvider>

@@ -29,3 +29,14 @@ grant execute on function auth.uid() to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+
+-- Storage de Supabase: solo la tabla de buckets (la firma de consentimientos
+-- crea el suyo, privado).
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id                 text primary key,
+  name               text not null,
+  public             boolean default false,
+  file_size_limit    bigint,
+  allowed_mime_types text[]
+);
