@@ -5,6 +5,7 @@ import Acceso from "./Acceso";
 import NuevaContrasena from "./NuevaContrasena";
 import Panel from "./Panel";
 import MiArea from "./MiArea";
+import Sesion from "./Sesion";
 import { useAreaManifest, useNoIndex } from "./AreaLayout";
 
 // Se carga bajo demanda desde App.tsx: así Supabase y el área privada no
@@ -18,6 +19,7 @@ export default function AreaRoutes() {
         <Route path="/acceso" component={Acceso} />
         <Route path="/acceso/nueva-contrasena" component={NuevaContrasena} />
         <Route path="/panel" component={Panel} />
+        <Route path="/panel/sesion/:id" component={Sesion} />
         <Route path="/mi-area" component={MiArea} />
         <Route component={NotFound} />
       </Switch>

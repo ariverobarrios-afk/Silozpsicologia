@@ -24,7 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, type AgendaEvent, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile } from "@/lib/supabase";
+import { supabase, type AgendaEvent, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile, type SessionNotes } from "@/lib/supabase";
 import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
 import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
 import { AppointmentDialog } from "./AppointmentDialog";
@@ -36,6 +36,7 @@ import { PatientProfile } from "./PatientProfile";
 import { WeekCalendar } from "./WeekCalendar";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDay, formatTime } from "./format";
+import { agendaNotes } from "./sessionNotes";
 
 const ALL = "todos";
 
@@ -73,8 +74,8 @@ function PanelTerapeuta() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
   const [choosingNew, setChoosingNew] = useState(false);
-  // Notas de cada cita (id de cita → texto). Solo las lee la administración.
-  const [notes, setNotes] = useState<Map<string, string>>(new Map());
+  // Notas de cada sesión (id de cita → notas). Solo las lee la administración.
+  const [notes, setNotes] = useState<Map<string, SessionNotes>>(new Map());
 
   const reload = useCallback(async () => {
     if (!supabase) return;
@@ -95,9 +96,9 @@ function PanelTerapeuta() {
       supabase.from("invoices").select("*").order("number"),
       supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
-      supabase.from("appointment_notes").select("appointment_id, notes"),
+      supabase.from("appointment_notes").select("appointment_id, notes, next_notes"),
     ]);
-    setNotes(new Map(((nt as { appointment_id: string; notes: string }[] | null) ?? []).map((n) => [n.appointment_id, n.notes])));
+    setNotes(new Map(((nt as SessionNotes[] | null) ?? []).map((n) => [n.appointment_id, n])));
     setEvents((ev as AgendaEvent[] | null) ?? []);
     setInvoices((inv as Invoice[] | null) ?? []);
     setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
@@ -262,7 +263,7 @@ function PanelTerapeuta() {
               appointments={visible}
               events={events}
               patientName={patientName}
-              notesFor={(a) => notes.get(a.id)}
+              notesFor={(a) => agendaNotes(a, appointments ?? [], notes)}
               onSelect={(a) => setEditing(a)}
               onSelectEvent={(ev) => setEditingEvent(ev)}
               alertFor={alertFor}
@@ -474,7 +475,6 @@ function PanelTerapeuta() {
         <AppointmentDialog
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
           appointment={editing === "new" ? null : editing}
-          initialNotes={editing === "new" ? "" : notes.get(editing.id) ?? ""}
           appointments={appointments}
           events={events}
           bonos={bonos}
