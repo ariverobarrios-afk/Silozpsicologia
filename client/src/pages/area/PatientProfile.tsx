@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { ArrowLeft, CalendarPlus, FileText, IdCard, Mail, Pencil, Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -386,6 +387,22 @@ export function PatientProfile({
                       ? "Le aparece como pendiente en su área: no tienes que hacer nada."
                       : "Lo verá pendiente en su área en cuanto tenga acceso (envíale la invitación)."}
                   </p>
+                )}
+                {consent && (
+                  <label className="mt-3 flex items-start justify-between gap-3 rounded-2xl border border-border bg-card p-3 text-sm">
+                    <span>
+                      <span className="font-medium text-foreground">Se opone al uso de IA con sus notas</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Márcalo si te lo pide (por email). Mientras esté marcado, no se pueden generar highlights de sus sesiones.
+                      </span>
+                    </span>
+                    <Switch checked={consent.ai_opt_out} onCheckedChange={async (value) => {
+                      const { error } = await supabase!.from("profiles").update({ ai_opt_out: value }).eq("id", p.id);
+                      if (error) return toast.error("No se pudo guardar.");
+                      setConsent({ ...consent, ai_opt_out: value });
+                      toast.success(value ? "Anotado: se opone al uso de IA." : "Ya no consta oposición al uso de IA.");
+                    }} aria-label="Se opone al uso de IA con sus notas" />
+                  </label>
                 )}
               </>
             )}

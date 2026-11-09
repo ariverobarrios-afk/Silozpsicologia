@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase, type Appointment, type Profile, type SessionNotes } from "@/lib/supabase";
 import { AppointmentItem } from "./AppointmentItem";
+import { HighlightsPanel } from "./HighlightsPanel";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDayTitle, formatTime } from "./format";
 import { nextSession, previousSession } from "./sessionNotes";
@@ -323,6 +324,10 @@ function SesionContent({ id }: { id: string }) {
             Guardar ahora
           </Button>
         </div>
+
+        <HighlightsPanel appointmentId={appointment.id} patientId={appointment.patient_id}
+          saved={saved.current}
+          ensureSaved={async () => { await saveNow(); return !isDirty(); }} />
 
         {(prev || next) && (
           <nav className="flex flex-wrap justify-between gap-2 border-t border-border pt-4">

@@ -9,7 +9,9 @@ import { supabase, type Appointment, type Bono, type Invoice } from "@/lib/supab
 import { openInvoice } from "@/lib/invoices";
 import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { fetchConsentOverview, type ConsentOverview } from "@/lib/consent";
-import { ConsentBanner, ConsentCard } from "./ConsentDocuments";
+import { ConsentBanner, ConsentCard, InfoUpdateBanner } from "./ConsentDocuments";
+import { HighlightsView } from "./HighlightsView";
+import { formatDayTitle } from "./format";
 import { AppointmentItem } from "./AppointmentItem";
 import { Banner, BookingSection, CancelBookingButton, useBookingContext } from "./BookingSection";
 import { AreaLayout, RequireRole } from "./AreaLayout";
@@ -24,6 +26,8 @@ function MisCitas() {
   const { settings, psychologist } = useBookingContext();
   const [cancelBanner, setCancelBanner] = useState<string | null>(null);
   const [consent, setConsent] = useState<ConsentOverview | null>(null);
+  // Highlights que la psicóloga ha publicado (solo el texto publicado).
+  const [highlights, setHighlights] = useState<Array<{ appointment_id: string; starts_at: string; content: string }>>([]);
   // Pestaña en la URL (#documentos) para que el enlace del email abra «Documentos».
   const [tab, setTab] = useState(() => (window.location.hash === "#documentos" ? "documentos" : "citas"));
   const changeTab = (value: string) => {
@@ -63,6 +67,8 @@ function MisCitas() {
       .order("number", { ascending: false })
       .then(({ data }) => setInvoices((data as Invoice[]) ?? []));
     fetchConsentOverview(profile.id).then(setConsent);
+    supabase.rpc("my_session_highlights").then(({ data }) =>
+      setHighlights((data as Array<{ appointment_id: string; starts_at: string; content: string }> | null) ?? []));
   }, [profile, loadAppointments]);
 
   const consentPending = Boolean(consent && consent.status !== "firmado");
@@ -78,6 +84,7 @@ function MisCitas() {
   return (
     <AreaLayout title={profile?.full_name ? `Hola, ${profile.full_name.split(" ")[0]}` : "Mi área"}>
       <ConsentBanner overview={consent} />
+      <InfoUpdateBanner overview={consent} />
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="citas"><CalendarDays className="size-4" /> Citas</TabsTrigger>
@@ -147,6 +154,20 @@ function MisCitas() {
                 )}
               </section>
             </div>
+          )}
+          {highlights.length > 0 && (
+            <section className="mt-10 flex flex-col">
+              <h2 className="mb-1 font-serif text-2xl font-semibold text-foreground">Highlights de tus sesiones</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Lo que merece la pena recordar de cada sesión, revisado por tu psicóloga.</p>
+              <ShowMoreList className="flex flex-col gap-4">
+                {highlights.map((h) => (
+                  <li key={h.appointment_id} className="rounded-2xl border border-border bg-card p-4">
+                    <p className="mb-3 text-sm font-medium text-muted-foreground">{formatDayTitle(h.starts_at)}</p>
+                    <HighlightsView text={h.content} />
+                  </li>
+                ))}
+              </ShowMoreList>
+            </section>
           )}
         </TabsContent>
 

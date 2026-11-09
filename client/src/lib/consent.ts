@@ -6,6 +6,8 @@ export type ConsentStatus = "pendiente" | "actualizacion" | "firmado";
 export interface ConsentOverview {
   status: ConsentStatus;
   block_booking: boolean;
+  info_update: boolean; // firmó un texto de protección de datos anterior al vigente (sin refirma)
+  ai_opt_out: boolean; // se opone al uso de IA con sus notas
   consents: Array<{ id: string; signed_at: string; versions: { privacy: string; rules: string; withdrawal: string } }>;
 }
 
@@ -40,7 +42,7 @@ export async function fetchConsentContext(): Promise<ConsentContext | null> {
   return data as ConsentContext;
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
+export async function authHeaders(): Promise<Record<string, string>> {
   const { data } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
   return { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` };
 }
