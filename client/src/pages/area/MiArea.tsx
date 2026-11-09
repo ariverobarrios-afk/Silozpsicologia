@@ -9,7 +9,7 @@ import { supabase, type Appointment, type Bono, type Invoice } from "@/lib/supab
 import { openInvoice } from "@/lib/invoices";
 import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { fetchConsentOverview, type ConsentOverview } from "@/lib/consent";
-import { ConsentBanner, ConsentCard } from "./ConsentDocuments";
+import { ConsentBanner, ConsentCard, InfoUpdateBanner } from "./ConsentDocuments";
 import { AppointmentItem } from "./AppointmentItem";
 import { Banner, BookingSection, CancelBookingButton, useBookingContext } from "./BookingSection";
 import { AreaLayout, RequireRole } from "./AreaLayout";
@@ -78,6 +78,7 @@ function MisCitas() {
   return (
     <AreaLayout title={profile?.full_name ? `Hola, ${profile.full_name.split(" ")[0]}` : "Mi área"}>
       <ConsentBanner overview={consent} />
+      <InfoUpdateBanner overview={consent} />
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="citas"><CalendarDays className="size-4" /> Citas</TabsTrigger>
