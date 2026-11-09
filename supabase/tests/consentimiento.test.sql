@@ -39,13 +39,14 @@ select pg_temp.ok((select coalesce(responsable_direccion, '') from public.consen
 select pg_temp.ok(not exists (select 1 from public.current_document_versions()
                                where body_md like '%responsable_direccion%' or body_md ilike '%domicilio%'),
   'textos vigentes sin domicilio');
-select pg_temp.ok((select string_agg(version, ',' order by doc_type) from public.current_document_versions()) = '2.2,2.1,1.1',
-  'vigentes: A 2.2 (con IA), B 2.1, C 1.1');
+select pg_temp.ok((select string_agg(version, ',' order by doc_type) from public.current_document_versions()) = '2.3,2.1,1.1',
+  'vigentes: A 2.3 (con IA, «claves de mi proceso»), B 2.1, C 1.1');
 select pg_temp.ok((select body_md from public.current_document_versions() where doc_type = 'privacy') like '%Uso de inteligencia artificial%',
   'A 2.2 incluye el párrafo de IA');
-select pg_temp.ok((select body_md from public.current_document_versions() where doc_type = 'privacy') like '%se los hace llegar en su área privada%'
-                  and (select body_md from public.current_document_versions() where doc_type = 'privacy') not like '%no se le entrega%',
-  'A 2.2: los highlights pueden llegar al paciente');
+select pg_temp.ok((select body_md from public.current_document_versions() where doc_type = 'privacy') like '%se las hace llegar en su área privada%'
+                  and (select body_md from public.current_document_versions() where doc_type = 'privacy') not like '%no se le entrega%'
+                  and (select body_md from public.current_document_versions() where doc_type = 'privacy') not ilike '%highlights%',
+  'A 2.3: las claves pueden llegar al paciente y ya no dice «highlights»');
 
 -- Sin psicóloga en therapists, la página avisa de que no está lista.
 set role authenticated;
@@ -175,6 +176,28 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', :'p6', false);
 select pg_temp.ok((public.consent_overview(:'p6')->>'info_update')::boolean, 'firmó A 2.1: se le avisa del texto 2.2');
 select pg_temp.ok((public.consent_overview(:'p6')->>'ai_opt_out')::boolean = false, 'sin oposición por defecto');
+reset role;
+-- Quien firmó la 2.2 (antes del cambio de nombre) no recibe aviso: la 2.3 es sucesora cosmética.
+\set p7 '00000000-0000-0000-0000-000000000007'
+insert into public.profiles (id, role, full_name, email, psychologist_id, active)
+values (:'p7', 'patient', 'Paciente Siete', 'p7@example.com', :'silvia', true);
+set role service_role;
+insert into public.consents (patient_id, therapist_id, patient_name, patient_surname,
+  patient_id_number, patient_email, patient_birthdate, privacy_version_id, rules_version_id,
+  withdrawal_version_id, accepted_privacy, accepted_rules, accepted_withdrawal_start,
+  signature_png_path, pdf_path, pdf_sha256, rendered_text_sha256)
+select :'p7', t.id, 'P', 'Siete', '12345678Z', 'p7@example.com', '1990-01-01',
+       (select id from public.document_versions where doc_type = 'privacy' and version = '2.2'),
+       (select id from public.current_document_versions() where doc_type = 'rules'),
+       (select id from public.current_document_versions() where doc_type = 'withdrawal'),
+       true, true, true, 'x.png', 'x.pdf', repeat('a', 64), repeat('b', 64)
+  from public.therapists t;
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'p7', false);
+select pg_temp.ok(public.consent_overview(:'p7')->>'status' = 'firmado', 'firmó A 2.2: firmado');
+select pg_temp.ok((public.consent_overview(:'p7')->>'info_update')::boolean = false, 'firmó A 2.2: sin aviso por el cambio de nombre');
+select set_config('request.jwt.claim.sub', :'p6', false);
 -- El paciente no puede cambiar su oposición (solo la administración actualiza perfiles).
 update public.profiles set ai_opt_out = true where id = :'p6';
 select pg_temp.ok((select ai_opt_out from public.profiles where id = :'p6') = false, 'el paciente no cambia ai_opt_out');

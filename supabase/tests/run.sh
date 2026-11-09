@@ -32,7 +32,8 @@ python3 - <<'PY'
 import sys
 schema = open("supabase/schema.sql").read()
 for f in ("20261106_reserva_citas_paciente.sql", "20261108_consentimiento_firma.sql",
-          "20261109_consentimiento_sin_domicilio.sql", "20261109_ia_highlights.sql"):
+          "20261109_consentimiento_sin_domicilio.sql", "20261109_ia_highlights.sql",
+          "20261109_claves_proceso.sql"):
     if open("supabase/migrations/" + f).read().strip() not in schema:
         sys.exit("schema.sql no incluye tal cual la migración " + f)
 PY
