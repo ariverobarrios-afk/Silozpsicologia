@@ -250,9 +250,9 @@ function PanelTerapeuta() {
         </TabsList>
 
         <TabsContent value="agenda">
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="w-full sm:w-72">
+              <SelectTrigger className="w-full lg:w-72">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -262,7 +262,7 @@ function PanelTerapeuta() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex rounded-full border border-border bg-secondary p-1" role="group" aria-label="Vista">
                 <Button variant={view === "calendario" ? "default" : "ghost"} size="sm" className="rounded-full"
                   aria-pressed={view === "calendario"} onClick={() => setView("calendario")}>
