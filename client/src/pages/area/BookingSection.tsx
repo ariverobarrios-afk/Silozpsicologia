@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarCheck, Mail, Phone, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Mail, MessageCircle, Phone, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -34,6 +34,7 @@ import {
   type PsychologistContact,
 } from "@/lib/booking";
 import { capitalize, madridDayKey, madridLongDay, madridTime, madridWeekKey } from "../../../../shared/madrid";
+import { isMobileDevice, whatsappLinks } from "../../../../shared/whatsapp";
 
 const COMMENT_MAX = 300;
 
@@ -55,10 +56,33 @@ export function useBookingContext() {
   return { settings, psychologist };
 }
 
-// Canal de contacto: email y teléfono de su psicóloga (o los de la consulta).
+// WhatsApp: en el móvil abre la app directamente (whatsapp://); si en 1,5 s no
+// se ha abierto (la página sigue visible), va a wa.me, que ofrece abrirla o
+// instalarla. En el ordenador, wa.me (WhatsApp Web o la app de escritorio).
+function openWhatsapp(e: React.MouseEvent<HTMLAnchorElement>, links: { app: string; web: string }) {
+  if (!isMobileDevice(navigator.userAgent)) return; // el enlace normal (wa.me)
+  e.preventDefault();
+  let fallback: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (fallback) clearTimeout(fallback);
+    document.removeEventListener("visibilitychange", onHide);
+    window.removeEventListener("pagehide", cancel);
+  };
+  const onHide = () => { if (document.visibilityState === "hidden") cancel(); };
+  document.addEventListener("visibilitychange", onHide);
+  window.addEventListener("pagehide", cancel);
+  fallback = setTimeout(() => {
+    cancel();
+    if (document.visibilityState === "visible") window.location.href = links.web;
+  }, 1500);
+  window.location.href = links.app;
+}
+
+// Canal de contacto: email, teléfono y WhatsApp de su psicóloga (o los de la consulta).
 export function ContactLinks({ psychologist }: { psychologist: PsychologistContact | null }) {
   const email = psychologist?.email || FALLBACK_CONTACT.email;
   const phone = psychologist?.phone || FALLBACK_CONTACT.phone;
+  const wa = whatsappLinks(phone);
   return (
     <span className="mt-2 flex flex-wrap gap-2">
       <a href={`mailto:${email}`}
@@ -69,6 +93,12 @@ export function ContactLinks({ psychologist }: { psychologist: PsychologistConta
         className="inline-flex items-center gap-1.5 rounded-full border border-current/30 px-3 py-1 text-sm font-medium underline-offset-4 hover:underline">
         <Phone className="size-4" />{phone}
       </a>
+      {wa && (
+        <a href={wa.web} target="_blank" rel="noopener noreferrer" onClick={(e) => openWhatsapp(e, wa)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-current/30 px-3 py-1 text-sm font-medium underline-offset-4 hover:underline">
+          <MessageCircle className="size-4" />WhatsApp
+        </a>
+      )}
     </span>
   );
 }
