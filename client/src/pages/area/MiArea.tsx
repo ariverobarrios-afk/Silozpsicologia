@@ -181,14 +181,24 @@ function MisCitas() {
                   Todavía no hay claves de tu proceso. Después de tus sesiones, tu psicóloga puede compartir aquí lo que merece la pena recordar.
                 </p>
               ) : (
-                <ShowMoreList className="flex flex-col gap-4">
-                  {highlights.map((h) => (
-                    <li key={h.appointment_id} className="rounded-2xl border border-border bg-card p-4">
-                      <p className="mb-3 text-sm font-medium text-muted-foreground">{formatDayTitle(h.starts_at)}</p>
-                      <HighlightsView text={h.content} />
-                    </li>
-                  ))}
-                </ShowMoreList>
+                <>
+                  {/* Se leen aquí, no se descargan: sin seleccionar, copiar, arrastrar ni
+                      menú contextual, y fuera de la impresión / «guardar como PDF».
+                      (Las capturas de pantalla no se pueden evitar desde una web.) */}
+                  <div className="flex select-none flex-col print:hidden [-webkit-touch-callout:none]"
+                    onCopy={(e) => e.preventDefault()} onCut={(e) => e.preventDefault()}
+                    onContextMenu={(e) => e.preventDefault()} onDragStart={(e) => e.preventDefault()}>
+                    <ShowMoreList className="flex flex-col gap-4">
+                      {highlights.map((h) => (
+                        <li key={h.appointment_id} className="rounded-2xl border border-border bg-card p-4">
+                          <p className="mb-3 text-sm font-medium text-muted-foreground">{formatDayTitle(h.starts_at)}</p>
+                          <HighlightsView text={h.content} />
+                        </li>
+                      ))}
+                    </ShowMoreList>
+                  </div>
+                  <p className="hidden print:block">Las claves de tu proceso solo pueden consultarse en tu área privada.</p>
+                </>
               )}
             </section>
           </TabsContent>
