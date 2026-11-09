@@ -10,8 +10,10 @@
 --   paciente, así que los PDF de firmas anteriores no se reemiten con este texto.
 -- · profiles.ai_opt_out: el paciente se opone al uso de IA con sus notas (lo
 --   marca la psicóloga en la ficha cuando el paciente lo pide por email).
--- · session_highlights: resumen generado por IA de cada sesión. Solo
---   administración (RLS); el paciente nunca lo ve.
+-- · session_highlights: highlights generados por IA de cada sesión (texto de
+--   Silvia como instrucciones). Borrador solo para administración (RLS); el
+--   paciente ve únicamente lo que la psicóloga publica (published_content), a
+--   través de my_session_highlights().
 -- ─────────────────────────────────────────────────────────────────────────────
 
 alter table public.profiles add column if not exists ai_opt_out boolean not null default false;
@@ -23,6 +25,8 @@ create table if not exists public.session_highlights (
   notes_sha256   text not null,           -- huella de las notas de las que salió
   generated_at   timestamptz not null default now(),
   edited_at      timestamptz,             -- la psicóloga lo ha retocado a mano
+  published_content text check (length(published_content) <= 10000), -- lo que ve el paciente
+  published_at   timestamptz,             -- null = no publicado
   updated_at     timestamptz not null default now()
 );
 alter table public.session_highlights enable row level security;
@@ -56,7 +60,7 @@ $txt$**Responsable del tratamiento.** Le informamos que los datos personales que
 
 **Destinatarios y encargados del tratamiento.** Sus datos no se cederán a terceros, salvo obligación legal. Para la prestación del servicio, la responsable recurre a proveedores que actúan como encargados del tratamiento y acceden a los datos únicamente en la medida necesaria para prestar su servicio y bajo las garantías del RGPD: alojamiento de correo electrónico y archivos, plataforma de videollamada ({{plataforma_videollamada}}), alojamiento de la web y base de datos del sistema de firma, mensajería instantánea y herramienta de inteligencia artificial para resumir notas de sesión (Anthropic; ver «Uso de inteligencia artificial»). Algunos de estos proveedores pueden realizar transferencias internacionales de datos al amparo de las garantías previstas en el RGPD (decisiones de adecuación o cláusulas contractuales tipo). Puede solicitar más información sobre los encargados en {{email_contacto}}.
 
-**Uso de inteligencia artificial.** Como apoyo a la documentación clínica, la psicóloga puede utilizar una herramienta de inteligencia artificial para resumir sus notas de sesión. A la herramienta se envía solo el texto de las notas, sin su nombre, DNI ni datos de contacto. El proveedor, Anthropic Ireland, Limited (cuya matriz, Anthropic, PBC, está en Estados Unidos), actúa como encargado del tratamiento: no utiliza los datos para entrenar sus modelos y los borra en un plazo máximo de 30 días, salvo que sus sistemas de seguridad marquen un contenido, en cuyo caso puede conservarlo hasta 2 años. Los datos pueden tratarse en Estados Unidos, con las garantías de las cláusulas contractuales tipo aprobadas por la Comisión Europea. La herramienta no hace diagnósticos ni toma decisiones: la psicóloga revisa siempre el resumen, que es material de trabajo interno y no se le entrega. Puede oponerse a este uso en cualquier momento, sin que afecte a la atención que recibe, escribiendo a {{email_contacto}}.
+**Uso de inteligencia artificial.** Como apoyo a la documentación clínica, la psicóloga puede utilizar una herramienta de inteligencia artificial para resumir sus notas de sesión. A la herramienta se envía solo el texto de las notas, sin su nombre, DNI ni datos de contacto. El proveedor, Anthropic Ireland, Limited (cuya matriz, Anthropic, PBC, está en Estados Unidos), actúa como encargado del tratamiento: no utiliza los datos para entrenar sus modelos y los borra en un plazo máximo de 30 días, salvo que sus sistemas de seguridad marquen un contenido, en cuyo caso puede conservarlo hasta 2 años. Los datos pueden tratarse en Estados Unidos, con las garantías de las cláusulas contractuales tipo aprobadas por la Comisión Europea. La herramienta no hace diagnósticos ni toma decisiones. A partir de las notas propone unos «highlights»: aprendizajes y reflexiones de la sesión que pueden serle útiles. La psicóloga los revisa y, si lo considera oportuno, se los hace llegar en su área privada; los highlights que reciba se habrán elaborado con ayuda de esta herramienta. Para dar continuidad, pueden tenerse en cuenta las notas de algunas sesiones anteriores. Puede oponerse a este uso en cualquier momento, sin que afecte a la atención que recibe, escribiendo a {{email_contacto}}.
 
 **Derechos.** Podrá ejercer en cualquier momento sus derechos de acceso, rectificación, supresión, limitación del tratamiento, portabilidad y oposición mediante correo electrónico dirigido a la responsable del tratamiento a {{email_contacto}}, adjuntando documento que acredite su identidad. Igualmente, podrá presentar una reclamación ante la Agencia Española de Protección de Datos (AEPD). Para garantizar la seguridad de los datos personales, en determinados supuestos podrá solicitarse acreditación de identidad.
 
@@ -99,3 +103,16 @@ end;
 $fn$;
 revoke all on function public.consent_overview(uuid) from public, anon;
 grant execute on function public.consent_overview(uuid) to authenticated;
+
+-- Highlights publicados del paciente que llama (solo el texto publicado).
+create or replace function public.my_session_highlights()
+returns table (appointment_id uuid, starts_at timestamptz, content text, published_at timestamptz)
+language sql stable security definer set search_path = public as $fn$
+  select h.appointment_id, a.starts_at, h.published_content, h.published_at
+    from public.session_highlights h
+    join public.appointments a on a.id = h.appointment_id
+   where a.patient_id = auth.uid() and h.published_at is not null and h.published_content is not null
+   order by a.starts_at desc;
+$fn$;
+revoke all on function public.my_session_highlights() from public, anon;
+grant execute on function public.my_session_highlights() to authenticated;

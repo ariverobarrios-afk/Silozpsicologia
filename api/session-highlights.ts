@@ -8,9 +8,12 @@
 // notas (server/highlights.ts) y las envía a la API de Anthropic con:
 //   · modelo claude-opus-5-5 (no es «Covered Model»: sin retención obligatoria extra),
 //   · inference_geo "us" (el texto del consentimiento dice «Estados Unidos»),
-//   · respuesta estructurada (temas, hechos, tareas, para retomar),
+//   · instrucciones de Silvia (server/highlightsPrompt.ts), con caché de prompt,
+//   · la sesión actual y hasta 5 anteriores (continuidad del proceso),
+//   · respuesta estructurada (2-5 highlights para el paciente),
 //   · fallbacks "default" por si el modelo declina por seguridad.
-// Guarda el resultado en session_highlights (solo lo ve la psicóloga).
+// Guarda el resultado en session_highlights como borrador: el paciente solo lo
+// ve cuando la psicóloga lo revisa y lo publica.
 //
 // Nunca se escriben en los logs las notas ni la respuesta.
 // Variables: SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY.
@@ -22,6 +25,7 @@ import {
   HIGHLIGHTS_MODEL,
   HIGHLIGHTS_SCHEMA,
   HIGHLIGHTS_SYSTEM,
+  buildHighlightsInput,
   highlightsToText,
   notesForPrompt,
   parseHighlights,
@@ -49,7 +53,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
   if (!UUID_RE.test(appointmentId)) return fail(404, "not_found", "Sesión no encontrada.");
 
-  const { data: appt } = await admin.from("appointments").select("id, patient_id").eq("id", appointmentId).maybeSingle();
+  const { data: appt } = await admin.from("appointments").select("id, patient_id, starts_at").eq("id", appointmentId).maybeSingle();
   if (!appt) return fail(404, "not_found", "Sesión no encontrada.");
   const [{ data: patient }, { data: status }, { data: notesRow }] = await Promise.all([
     admin.from("profiles").select("full_name, email, phone, tax_id, ai_opt_out").eq("id", appt.patient_id).maybeSingle(),
@@ -68,21 +72,35 @@ export default async function handler(req: Request): Promise<Response> {
   const apiKey = env("ANTHROPIC_API_KEY");
   if (!apiKey) return fail(500, "not_configured", "Los highlights con IA aún no están configurados (falta ANTHROPIC_API_KEY en Vercel).");
 
+  // Hasta 5 sesiones anteriores (no canceladas), de la más reciente a la más antigua.
+  const { data: prevAppts } = await admin.from("appointments").select("id")
+    .eq("patient_id", appt.patient_id).neq("status", "cancelada").lt("starts_at", appt.starts_at)
+    .order("starts_at", { ascending: false }).limit(5);
+  const prevIds = (prevAppts ?? []).map((a) => a.id);
+  const { data: prevNotes } = prevIds.length
+    ? await admin.from("appointment_notes").select("appointment_id, notes, next_notes").in("appointment_id", prevIds)
+    : { data: [] };
+  const previous = prevIds.map((pid) => {
+    const n = (prevNotes ?? []).find((x) => x.appointment_id === pid);
+    return { notes: n?.notes ?? "", next: n?.next_notes ?? "" };
+  });
+
   const original = notesForPrompt(notes, nextNotes);
-  const prompt = pseudonymize(original, patient);
+  const prompt = pseudonymize(buildHighlightsInput({ notes, next: nextNotes }, previous), patient);
   const client = new Anthropic({ apiKey });
 
   let response: Anthropic.Beta.BetaMessage;
   try {
     response = await client.beta.messages.create({
       model: HIGHLIGHTS_MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       inference_geo: "us",
-      system: HIGHLIGHTS_SYSTEM,
+      // Instrucciones largas y fijas: en caché para que repetir cueste menos.
+      system: [{ type: "text", text: HIGHLIGHTS_SYSTEM, cache_control: { type: "ephemeral" } }],
       output_config: {
-        effort: "low",
+        effort: "medium",
         format: { type: "json_schema", schema: HIGHLIGHTS_SCHEMA as unknown as Record<string, unknown> },
       },
       messages: [{ role: "user", content: prompt }],
@@ -112,6 +130,9 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const content = highlightsToText(parsed);
+  if (!content) {
+    return fail(422, "empty", "La IA no ha encontrado en estas notas nada que cumpla los criterios para un highlight.");
+  }
   const row = {
     appointment_id: appointmentId,
     content,

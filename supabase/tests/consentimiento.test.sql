@@ -43,6 +43,9 @@ select pg_temp.ok((select string_agg(version, ',' order by doc_type) from public
   'vigentes: A 2.2 (con IA), B 2.1, C 1.1');
 select pg_temp.ok((select body_md from public.current_document_versions() where doc_type = 'privacy') like '%Uso de inteligencia artificial%',
   'A 2.2 incluye el párrafo de IA');
+select pg_temp.ok((select body_md from public.current_document_versions() where doc_type = 'privacy') like '%se los hace llegar en su área privada%'
+                  and (select body_md from public.current_document_versions() where doc_type = 'privacy') not like '%no se le entrega%',
+  'A 2.2: los highlights pueden llegar al paciente');
 
 -- Sin psicóloga en therapists, la página avisa de que no está lista.
 set role authenticated;
@@ -189,6 +192,19 @@ select set_config('request.jwt.claim.sub', :'silvia', false);
 select pg_temp.ok((select count(*) from public.session_highlights) = 1, 'admin lee highlights');
 update public.profiles set ai_opt_out = true where id = :'p6';
 select pg_temp.ok((public.consent_overview(:'p6')->>'ai_opt_out')::boolean, 'admin marca la oposición');
+reset role;
+
+-- Publicación: el paciente solo ve el texto publicado, no el borrador; otro paciente, nada.
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'p6', false);
+select pg_temp.ok((select count(*) from public.my_session_highlights()) = 0, 'borrador sin publicar: el paciente no lo ve');
+select set_config('request.jwt.claim.sub', :'silvia', false);
+update public.session_highlights set published_content = '### Publicado', published_at = now(), content = '### Borrador nuevo';
+select set_config('request.jwt.claim.sub', :'p6', false);
+select pg_temp.ok((select content from public.my_session_highlights()) = '### Publicado', 'el paciente ve solo lo publicado');
+select pg_temp.ok((select count(*) from public.session_highlights) = 0, 'y sigue sin poder leer la tabla');
+select set_config('request.jwt.claim.sub', :'p2', false);
+select pg_temp.ok((select count(*) from public.my_session_highlights()) = 0, 'otro paciente no ve nada');
 reset role;
 
 \echo 'consentimiento.test.sql (IA): OK'
