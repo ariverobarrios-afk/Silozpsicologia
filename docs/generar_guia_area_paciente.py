@@ -361,10 +361,10 @@ s += [PageBreak()] + titulo(11, "Documentos y facturas", "Pulsa la pestaña <b>D
 s.append(pantalla("documentos", [
     ("1", "Descargar PDF", "Tu consentimiento firmado, con la fecha en que lo firmaste. Si alguna vez firmas una versión nueva, las antiguas siguen ahí."),
     ("2", "Descargar (factura)", "Cada factura con su número, fecha, concepto e importe. La más nueva arriba."),
-], img_w=70 * mm))
+], img_w=60 * mm))
 s.append(Spacer(1, 6))
 s.append(P("Así se ve una factura (se abre en una ventana nueva):", step_t))
-s.append(foto("factura", W * 0.6))
+s.append(foto("factura", W * 0.5))
 s.append(truco("En la factura, pulsa <b>Descargar / imprimir PDF</b> (abajo a la derecha) para guardarla. "
                "Si no se abre, permite las «ventanas emergentes» para esta web en tu navegador."))
 
