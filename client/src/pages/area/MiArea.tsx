@@ -11,6 +11,7 @@ import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { fetchConsentOverview, type ConsentOverview } from "@/lib/consent";
 import { ConsentBanner, ConsentCard, InfoUpdateBanner } from "./ConsentDocuments";
 import { HighlightsView } from "./HighlightsView";
+import { CalendarSync } from "./CalendarSync";
 import { formatDayTitle } from "./format";
 import { AppointmentItem } from "./AppointmentItem";
 import { Banner, BookingSection, CancelBookingButton, useBookingContext } from "./BookingSection";
@@ -170,6 +171,9 @@ function MisCitas() {
               </section>
             </div>
           )}
+          <section className="mt-10 flex flex-col">
+            <CalendarSync who="patient" />
+          </section>
           </TabsContent>
 
           <TabsContent value="highlights">

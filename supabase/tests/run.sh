@@ -33,7 +33,8 @@ import sys
 schema = open("supabase/schema.sql").read()
 for f in ("20261106_reserva_citas_paciente.sql", "20261108_consentimiento_firma.sql",
           "20261109_consentimiento_sin_domicilio.sql", "20261109_ia_highlights.sql",
-          "20261109_claves_proceso.sql"):
+          "20261109_claves_proceso.sql",
+          "20261109_calendario.sql"):
     if open("supabase/migrations/" + f).read().strip() not in schema:
         sys.exit("schema.sql no incluye tal cual la migración " + f)
 PY
@@ -48,6 +49,9 @@ echo "· reglas de negocio y autorización"
 echo "· firma del consentimiento: estado, permisos e inmutabilidad"
 fresh_db
 "${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/consentimiento.test.sql 2>&1 | grep -v NOTICE
+
+echo "· calendario: enlace privado por usuario"
+"${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/calendario.test.sql 2>&1 | grep -v NOTICE
 
 echo "· 10 pacientes reservan el mismo hueco a la vez"
 fresh_db
