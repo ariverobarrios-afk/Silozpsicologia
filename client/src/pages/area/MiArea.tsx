@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { CalendarDays, Download, FileText } from "lucide-react";
+import { CalendarDays, Download, FileText, ListChecks, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,11 +28,18 @@ function MisCitas() {
   const [consent, setConsent] = useState<ConsentOverview | null>(null);
   // Highlights que la psicóloga ha publicado (solo el texto publicado).
   const [highlights, setHighlights] = useState<Array<{ appointment_id: string; starts_at: string; content: string }>>([]);
-  // Pestaña en la URL (#documentos) para que el enlace del email abra «Documentos».
+  // Pestañas en la URL para poder enlazarlas: #documentos (enlace del email de
+  // la firma) y #highlights (dentro de «Citas»).
   const [tab, setTab] = useState(() => (window.location.hash === "#documentos" ? "documentos" : "citas"));
+  const [citasTab, setCitasTab] = useState(() => (window.location.hash === "#highlights" ? "highlights" : "gestion"));
+  const setHash = (hash: string) => window.history.replaceState(null, "", hash || window.location.pathname);
   const changeTab = (value: string) => {
     setTab(value);
-    window.history.replaceState(null, "", value === "documentos" ? "#documentos" : window.location.pathname);
+    setHash(value === "documentos" ? "#documentos" : citasTab === "highlights" ? "#highlights" : "");
+  };
+  const changeCitasTab = (value: string) => {
+    setCitasTab(value);
+    setHash(value === "highlights" ? "#highlights" : "");
   };
 
   const loadAppointments = useCallback(() => {
@@ -95,6 +102,13 @@ function MisCitas() {
         </TabsList>
 
         <TabsContent value="citas">
+          <Tabs value={citasTab} onValueChange={changeCitasTab}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="gestion"><ListChecks className="size-4" /> Gestión de citas</TabsTrigger>
+            <TabsTrigger value="highlights"><Sparkles className="size-4" /> Highlights</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="gestion">
           {error && <p className="text-destructive">No se pudieron cargar tus citas. Recarga la página.</p>}
           {!appointments && !error && <Spinner className="size-6 text-primary" />}
           {appointments && bonos
@@ -155,20 +169,29 @@ function MisCitas() {
               </section>
             </div>
           )}
-          {highlights.length > 0 && (
-            <section className="mt-10 flex flex-col">
+          </TabsContent>
+
+          <TabsContent value="highlights">
+            <section className="flex flex-col">
               <h2 className="mb-1 font-serif text-2xl font-semibold text-foreground">Highlights de tus sesiones</h2>
               <p className="mb-4 text-sm text-muted-foreground">Lo que merece la pena recordar de cada sesión, revisado por tu psicóloga.</p>
-              <ShowMoreList className="flex flex-col gap-4">
-                {highlights.map((h) => (
-                  <li key={h.appointment_id} className="rounded-2xl border border-border bg-card p-4">
-                    <p className="mb-3 text-sm font-medium text-muted-foreground">{formatDayTitle(h.starts_at)}</p>
-                    <HighlightsView text={h.content} />
-                  </li>
-                ))}
-              </ShowMoreList>
+              {highlights.length === 0 ? (
+                <p className="text-muted-foreground">
+                  Todavía no tienes highlights. Después de tus sesiones, tu psicóloga puede compartir aquí lo que merece la pena recordar.
+                </p>
+              ) : (
+                <ShowMoreList className="flex flex-col gap-4">
+                  {highlights.map((h) => (
+                    <li key={h.appointment_id} className="rounded-2xl border border-border bg-card p-4">
+                      <p className="mb-3 text-sm font-medium text-muted-foreground">{formatDayTitle(h.starts_at)}</p>
+                      <HighlightsView text={h.content} />
+                    </li>
+                  ))}
+                </ShowMoreList>
+              )}
             </section>
-          )}
+          </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="documentos" className="flex flex-col gap-10">
