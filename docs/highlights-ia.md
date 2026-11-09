@@ -36,6 +36,10 @@ Las instrucciones ya excluyen diagnósticos, hipótesis clínicas, etiquetas e i
    - El paciente lo lee con `my_session_highlights()`, que solo devuelve lo publicado y lo suyo.
 5. **Logs:** nunca contienen las notas ni la respuesta.
 
+## Nombre para el paciente: «Claves de mi proceso»
+
+De cara al paciente, los highlights se llaman **«Claves de mi proceso»**. Así aparecen en Mi área, en el aviso legal y en el texto **A 2.3** del consentimiento (`20261109_claves_proceso.sql`), que es la 2.2 con el nombre nuevo. Es una sucesora «cosmética»: `supersedes_id` apunta a la 2.2 y no pide volver a firmar. `consent_overview.info_update` no avisa a quien firmó la 2.2, porque la vigente es sucesora cosmética de la que firmó (`document_version_lineage`), pero sí a quien firmó antes del párrafo de IA. En el panel de la psicóloga siguen llamándose «Highlights».
+
 ## Consentimiento (texto A 2.2), información y oposición
 
 - **Texto:** A 2.2 añade el párrafo «Uso de inteligencia artificial» y la mención en «Destinatarios y encargados». Lo aprobó el cliente y explica que los highlights pueden llegar al paciente.
