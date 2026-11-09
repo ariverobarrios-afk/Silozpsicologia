@@ -29,17 +29,18 @@ function MisCitas() {
   // Highlights que la psicóloga ha publicado (solo el texto publicado).
   const [highlights, setHighlights] = useState<Array<{ appointment_id: string; starts_at: string; content: string }>>([]);
   // Pestañas en la URL para poder enlazarlas: #documentos (enlace del email de
-  // la firma) y #highlights (dentro de «Citas»).
+  // la firma) y #claves (dentro de «Citas»: «Claves de mi proceso», los
+  // highlights publicados; también vale el antiguo #highlights).
   const [tab, setTab] = useState(() => (window.location.hash === "#documentos" ? "documentos" : "citas"));
-  const [citasTab, setCitasTab] = useState(() => (window.location.hash === "#highlights" ? "highlights" : "gestion"));
+  const [citasTab, setCitasTab] = useState(() => (["#claves", "#highlights"].includes(window.location.hash) ? "highlights" : "gestion"));
   const setHash = (hash: string) => window.history.replaceState(null, "", hash || window.location.pathname);
   const changeTab = (value: string) => {
     setTab(value);
-    setHash(value === "documentos" ? "#documentos" : citasTab === "highlights" ? "#highlights" : "");
+    setHash(value === "documentos" ? "#documentos" : citasTab === "highlights" ? "#claves" : "");
   };
   const changeCitasTab = (value: string) => {
     setCitasTab(value);
-    setHash(value === "highlights" ? "#highlights" : "");
+    setHash(value === "highlights" ? "#claves" : "");
   };
 
   const loadAppointments = useCallback(() => {
@@ -105,7 +106,7 @@ function MisCitas() {
           <Tabs value={citasTab} onValueChange={changeCitasTab}>
           <TabsList className="mb-6">
             <TabsTrigger value="gestion"><ListChecks className="size-4" /> Gestión de citas</TabsTrigger>
-            <TabsTrigger value="highlights"><Sparkles className="size-4" /> Highlights</TabsTrigger>
+            <TabsTrigger value="highlights"><Sparkles className="size-4" /> Claves de mi proceso</TabsTrigger>
           </TabsList>
 
           <TabsContent value="gestion">
@@ -173,11 +174,11 @@ function MisCitas() {
 
           <TabsContent value="highlights">
             <section className="flex flex-col">
-              <h2 className="mb-1 font-serif text-2xl font-semibold text-foreground">Highlights de tus sesiones</h2>
+              <h2 className="mb-1 font-serif text-2xl font-semibold text-foreground">Claves de mi proceso</h2>
               <p className="mb-4 text-sm text-muted-foreground">Lo que merece la pena recordar de cada sesión, revisado por tu psicóloga.</p>
               {highlights.length === 0 ? (
                 <p className="text-muted-foreground">
-                  Todavía no tienes highlights. Después de tus sesiones, tu psicóloga puede compartir aquí lo que merece la pena recordar.
+                  Todavía no hay claves de tu proceso. Después de tus sesiones, tu psicóloga puede compartir aquí lo que merece la pena recordar.
                 </p>
               ) : (
                 <ShowMoreList className="flex flex-col gap-4">
