@@ -24,7 +24,7 @@ Las instrucciones ya excluyen diagnósticos, hipótesis clínicas, etiquetas e i
    - el paciente **ha firmado el consentimiento**;
    - hay notas guardadas.
 2. **Seudonimización** (`server/highlights.ts → pseudonymize`), aplicada a todas las notas enviadas: el nombre y los apellidos del paciente (sin distinguir mayúsculas ni tildes) y cualquier DNI/NIE, email o teléfono pasan a ser `[PACIENTE]`, `[DNI]`, `[EMAIL]` y `[TELÉFONO]`. Lo que identifica por contexto depende de cómo se escriban las notas.
-3. **Llamada a la API de Anthropic** con el SDK oficial:
+3. **Llamada a la API de Anthropic** (`server/anthropic.ts`). Se hace con `fetch` y no con el SDK oficial, porque el SDK importa `@opentelemetry/api`, que el runtime Edge de Vercel no admite: el despliegue fallaba. La petición es la misma que generaba el SDK, comprobada al capturarla:
    - modelo `claude-opus-5-5`, que no es un «Covered Model»;
    - `inference_geo: "us"`;
    - `effort: "medium"`;
