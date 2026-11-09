@@ -5,7 +5,8 @@
 //
 // Solo administración. Comprueba que el paciente no se ha opuesto al uso de IA
 // (profiles.ai_opt_out) y que ha firmado el consentimiento; seudonimiza las
-// notas (server/highlights.ts) y las envía a la API de Anthropic con:
+// notas (server/highlights.ts) y las envía a la API de Anthropic
+// (server/anthropic.ts, con fetch: el SDK no funciona en el runtime Edge) con:
 //   · modelo claude-opus-5-5 (no es «Covered Model»: sin retención obligatoria extra),
 //   · inference_geo "us" (el texto del consentimiento dice «Estados Unidos»),
 //   · instrucciones de Silvia (server/highlightsPrompt.ts), con caché de prompt,
@@ -17,7 +18,7 @@
 //
 // Nunca se escriben en los logs las notas ni la respuesta.
 // Variables: SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY.
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "../server/anthropic";
 import { authenticate, json } from "../server/booking";
 import { env } from "../server/email";
 import { sha256Hex } from "../server/consent";
@@ -87,36 +88,32 @@ export default async function handler(req: Request): Promise<Response> {
 
   const original = notesForPrompt(notes, nextNotes);
   const prompt = pseudonymize(buildHighlightsInput({ notes, next: nextNotes }, previous), patient);
-  const client = new Anthropic({ apiKey });
+  const result = await createMessage(apiKey, {
+    model: HIGHLIGHTS_MODEL,
+    max_tokens: 8000,
+    fallbacks: "default",
+    inference_geo: "us",
+    // Instrucciones largas y fijas: en caché para que repetir cueste menos.
+    system: [{ type: "text", text: HIGHLIGHTS_SYSTEM, cache_control: { type: "ephemeral" } }],
+    output_config: {
+      effort: "medium",
+      format: { type: "json_schema", schema: HIGHLIGHTS_SCHEMA },
+    },
+    messages: [{ role: "user", content: prompt }],
+  }, { betas: ["server-side-fallback-2026-07-01"] });
 
-  let response: Anthropic.Beta.BetaMessage;
-  try {
-    response = await client.beta.messages.create({
-      model: HIGHLIGHTS_MODEL,
-      max_tokens: 8000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      inference_geo: "us",
-      // Instrucciones largas y fijas: en caché para que repetir cueste menos.
-      system: [{ type: "text", text: HIGHLIGHTS_SYSTEM, cache_control: { type: "ephemeral" } }],
-      output_config: {
-        effort: "medium",
-        format: { type: "json_schema", schema: HIGHLIGHTS_SCHEMA as unknown as Record<string, unknown> },
-      },
-      messages: [{ role: "user", content: prompt }],
-    });
-  } catch (err) {
+  if (!result.ok) {
     // Solo el estado: nunca el contenido de la petición.
-    const status = err instanceof Anthropic.APIError ? err.status : "red";
-    console.error("Highlights: fallo de la API de Anthropic", status);
-    if (err instanceof Anthropic.AuthenticationError) {
+    console.error("Highlights: fallo de la API de Anthropic", result.status, result.errorType ?? "");
+    if (result.status === 401 || result.status === 403) {
       return fail(500, "not_configured", "La clave de Anthropic no es válida. Revísala en Vercel.");
     }
-    if (err instanceof Anthropic.RateLimitError) {
+    if (result.status === 429) {
       return fail(429, "rate_limited", "Demasiadas peticiones a la IA. Espera un minuto y vuelve a probar.");
     }
     return fail(502, "api_error", "La IA no ha respondido. Inténtalo de nuevo en un momento.");
   }
+  const response = result.message;
 
   if (response.stop_reason === "refusal") {
     console.error("Highlights: el modelo declinó", response.stop_details?.category ?? "sin categoría");

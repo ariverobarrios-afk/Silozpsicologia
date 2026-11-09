@@ -59,3 +59,29 @@ test("endpoint sin configurar o sin sesión", async () => {
   assert.equal(r3.status, 405);
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
+
+test("petición a Anthropic con fetch: igual que la del SDK", async () => {
+  const { createMessage, ANTHROPIC_URL } = await import("../server/anthropic");
+  const realFetch = globalThis.fetch;
+  let captured: { url: string; headers: Headers; body: Record<string, unknown> } | null = null;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    captured = { url, headers: new Headers(init.headers), body: JSON.parse(String(init.body)) };
+    return new Response(JSON.stringify({ type: "message", model: "claude-opus-5-5", stop_reason: "end_turn", content: [{ type: "text", text: "{}" }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const r = await createMessage("sk-prueba", { model: "claude-opus-5-5", fallbacks: "default", inference_geo: "us" }, { betas: ["server-side-fallback-2026-07-01"] });
+    assert.equal(r.ok, true);
+    assert.equal(captured!.url, ANTHROPIC_URL);
+    assert.equal(captured!.headers.get("x-api-key"), "sk-prueba");
+    assert.equal(captured!.headers.get("anthropic-version"), "2026-10-21");
+    assert.equal(captured!.headers.get("anthropic-beta"), "server-side-fallback-2026-07-01");
+    assert.equal(captured!.body.inference_geo, "us");
+    // Errores de la API: estado y tipo, sin contenido.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ type: "error", error: { type: "invalid_request_error" } }), { status: 400 })) as typeof fetch;
+    assert.deepEqual(await createMessage("k", {}), { ok: false, status: 400, errorType: "invalid_request_error" });
+    globalThis.fetch = (async () => { throw new Error("sin red"); }) as typeof fetch;
+    assert.deepEqual(await createMessage("k", {}), { ok: false, status: "network" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
