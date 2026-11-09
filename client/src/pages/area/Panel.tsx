@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, CalendarPlus, CalendarRange, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
+import { CalendarDays, CalendarPlus, CalendarRange, CalendarCheck as CalendarSyncIcon, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import { PatientProfile } from "./PatientProfile";
 import { WeekCalendar } from "./WeekCalendar";
 import { OpenAgendaDialog, SlotDialog } from "./SlotDialogs";
 import { AreaLayout, RequireRole } from "./AreaLayout";
+import { CalendarSync } from "./CalendarSync";
 import { formatDay, formatTime } from "./format";
 import { agendaNotes } from "./sessionNotes";
 import { format } from "date-fns";
@@ -76,6 +77,7 @@ function PanelTerapeuta() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
   const [choosingNew, setChoosingNew] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   // Notas de cada sesión (id de cita → notas). Solo las lee la administración.
   const [notes, setNotes] = useState<Map<string, SessionNotes>>(new Map());
   // Huecos abiertos para que reserven los pacientes («Abrir agenda»).
@@ -273,6 +275,11 @@ function PanelTerapeuta() {
                   Lista
                 </Button>
               </div>
+              <Button variant="outline" onClick={() => setCalendarOpen(true)} className="rounded-full"
+                title="Ver tu agenda en Google Calendar, el iPhone u Outlook" aria-label="Sincronizar con tu calendario">
+                <CalendarSyncIcon className="size-4" />
+                <span className="hidden sm:inline">Sincronizar</span>
+              </Button>
               <Button variant="outline" onClick={() => setOpeningAgenda(true)} className="rounded-full"
                 title="Crear huecos libres que tus pacientes pueden reservar">
                 <CalendarRange className="size-4" />
@@ -505,6 +512,15 @@ function PanelTerapeuta() {
         </TabsContent>
       </Tabs>
 
+      <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Tu agenda en tu calendario</DialogTitle>
+            <DialogDescription>Suscríbete una vez y la agenda se actualiza sola.</DialogDescription>
+          </DialogHeader>
+          <CalendarSync who="admin" />
+        </DialogContent>
+      </Dialog>
       {editing && (
         <AppointmentDialog
           patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
