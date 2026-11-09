@@ -1,0 +1,755 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { CalendarDays, CalendarPlus, CalendarRange, CalendarCheck as CalendarSyncIcon, ChevronRight, List, Mail, Pencil, Search, UserPlus, X } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase, type AgendaEvent, type AgendaSlot, type Appointment, type Bono, type Invoice, type InvoiceSettings, type ProcessType, type Profile, type SessionNotes } from "@/lib/supabase";
+import { PROCESS_LABEL, bonoRemaining, euros, isPendingPayment, paymentAlert } from "@/lib/tariffs";
+import { dayKey, isPsicolinkDay, type AgendaDay } from "@/lib/psicolink";
+import { AppointmentDialog } from "./AppointmentDialog";
+import { EventDialog, NewEntryDialog } from "./EventDialog";
+import { AppointmentItem } from "./AppointmentItem";
+import { BonoDialog, PaymentsTab } from "./Payments";
+import { InvoicingSection, PatientDataDialog } from "./Invoicing";
+import { PatientProfile } from "./PatientProfile";
+import { WeekCalendar } from "./WeekCalendar";
+import { OpenAgendaDialog, SlotDialog } from "./SlotDialogs";
+import { AreaLayout, RequireRole } from "./AreaLayout";
+import { CalendarSync } from "./CalendarSync";
+import { formatDay, formatTime } from "./format";
+import { agendaNotes } from "./sessionNotes";
+import { format } from "date-fns";
+
+const ALL = "todos";
+
+// Para buscar sin distinguir mayúsculas ni tildes («maria» encuentra «María»).
+const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+type PatientStatusFilter = "activos" | "inactivos" | "todos";
+const PATIENT_STATUS_LABEL: Record<PatientStatusFilter, string> = {
+  activos: "Activos",
+  inactivos: "Inactivos",
+  todos: "Todos",
+};
+
+function PanelTerapeuta() {
+  const [patients, setPatients] = useState<Profile[] | null>(null);
+  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
+  const [tab, setTab] = useState("agenda");
+  const [filter, setFilter] = useState<string>(ALL);
+  const [patientStatus, setPatientStatus] = useState<PatientStatusFilter>("activos");
+  const [patientQuery, setPatientQuery] = useState("");
+  const [editing, setEditing] = useState<Appointment | "new" | null>(null);
+  const [newDefaults, setNewDefaults] = useState<{ patientId?: string; date?: Date; time?: string }>({});
+  const [view, setView] = useState<"calendario" | "lista">("calendario");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteExisting, setInviteExisting] = useState<Profile | null>(null);
+  const [bonos, setBonos] = useState<Bono[] | null>(null);
+  // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
+  const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
+  const [editingPatient, setEditingPatient] = useState<Profile | null>(null);
+  // Ficha de paciente abierta (va en la URL, #paciente/<id>, para que «atrás» funcione).
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [sellBonoFor, setSellBonoFor] = useState<{ patientId?: string } | null>(null);
+  const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [editingEvent, setEditingEvent] = useState<AgendaEvent | "new" | null>(null);
+  const [choosingNew, setChoosingNew] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  // Notas de cada sesión (id de cita → notas). Solo las lee la administración.
+  const [notes, setNotes] = useState<Map<string, SessionNotes>>(new Map());
+  // Huecos abiertos para que reserven los pacientes («Abrir agenda»).
+  const [openSlots, setOpenSlots] = useState<AgendaSlot[]>([]);
+  const [openingAgenda, setOpeningAgenda] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<AgendaSlot | null>(null);
+  // Cita a abrir al llegar desde el enlace de un email (#cita/<id>).
+  const [linkedAppointmentId, setLinkedAppointmentId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!supabase) return;
+    const [p, a, b] = await Promise.all([
+      supabase.from("profiles").select("*").eq("role", "patient").order("full_name"),
+      supabase.from("appointments").select("*").order("starts_at", { ascending: true }),
+      supabase.from("bonos").select("*").order("created_at", { ascending: true }),
+    ]);
+    if (p.error || a.error || b.error) {
+      toast.error("No se pudieron cargar los datos.");
+      return;
+    }
+    setPatients(p.data as Profile[]);
+    setAppointments(a.data as Appointment[]);
+    setBonos(b.data as Bono[]);
+    const [{ data: days }, { data: inv }, { data: settings }, { data: ev }, { data: nt }, { data: sl }] = await Promise.all([
+      supabase.from("agenda_days").select("day, psicolink"),
+      supabase.from("invoices").select("*").order("number"),
+      supabase.from("invoice_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("agenda_events").select("id, title, starts_at, duration_minutes").order("starts_at"),
+      supabase.from("appointment_notes").select("appointment_id, notes, next_notes"),
+      supabase.from("agenda_slots").select("id, starts_at, ends_at, status")
+        .eq("status", "abierto").gt("ends_at", new Date().toISOString()).order("starts_at"),
+    ]);
+    setOpenSlots((sl as AgendaSlot[] | null) ?? []);
+    setNotes(new Map(((nt as SessionNotes[] | null) ?? []).map((n) => [n.appointment_id, n])));
+    setEvents((ev as AgendaEvent[] | null) ?? []);
+    setInvoices((inv as Invoice[] | null) ?? []);
+    setInvoiceSettings((settings as InvoiceSettings | null) ?? null);
+    setPsicolinkDays(new Map(((days as AgendaDay[] | null) ?? []).map((d) => [d.day, d.psicolink])));
+  }, []);
+
+  const togglePsicolink = async (day: Date) => {
+    const key = dayKey(day);
+    const next = !isPsicolinkDay(day, psicolinkDays);
+    const previous = new Map(psicolinkDays);
+    setPsicolinkDays(new Map(psicolinkDays).set(key, next)); // se ve al instante
+    const { error } = await supabase!
+      .from("agenda_days")
+      .upsert({ day: key, psicolink: next, updated_at: new Date().toISOString() });
+    if (error) {
+      setPsicolinkDays(previous);
+      toast.error("No se pudo guardar el día de Psicolink.");
+    }
+  };
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useEffect(() => {
+    const sync = () => {
+      const cita = window.location.hash.match(/^#cita\/([\w-]+)$/);
+      if (cita) {
+        setTab("agenda");
+        setLinkedAppointmentId(cita[1]);
+        return;
+      }
+      const m = window.location.hash.match(/^#paciente\/([\w-]+)$/);
+      setProfileId(m ? m[1] : null);
+      if (m) setTab("pacientes");
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  // Enlace de los emails de reserva/cancelación: abrir esa cita.
+  useEffect(() => {
+    if (!linkedAppointmentId || !appointments) return;
+    const a = appointments.find((x) => x.id === linkedAppointmentId);
+    setLinkedAppointmentId(null);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (a) setEditing(a);
+    else toast.error("No se ha encontrado esa cita.");
+  }, [linkedAppointmentId, appointments]);
+
+  const openProfile = (id: string) => {
+    window.location.hash = `paciente/${id}`;
+    window.scrollTo({ top: 0 });
+  };
+  const closeProfile = () => {
+    window.history.pushState(null, "", window.location.pathname + window.location.search);
+    setProfileId(null);
+  };
+
+  const patientName = useMemo(() => {
+    const map = new Map((patients ?? []).map((p) => [p.id, p.full_name || p.email]));
+    return (id: string) => map.get(id) ?? "Paciente";
+  }, [patients]);
+
+  const queryWords = normalize(patientQuery).split(/\s+/).filter(Boolean);
+  const listedPatients = (patients ?? [])
+    .filter((p) => (patientStatus === "todos" ? true : patientStatus === "activos" ? p.active : !p.active))
+    .filter((p) => {
+      if (queryWords.length === 0) return true;
+      const haystack = normalize([p.full_name, p.email, p.phone, p.tax_id].filter(Boolean).join(" "));
+      return queryWords.every((w) => haystack.includes(w));
+    });
+
+  const now = Date.now();
+  const visible = (appointments ?? []).filter((a) => filter === ALL || a.patient_id === filter);
+  const upcoming = visible.filter((a) => new Date(a.starts_at).getTime() >= now);
+  const past = visible.filter((a) => new Date(a.starts_at).getTime() < now).reverse();
+
+  const markDone = async (a: Appointment) => {
+    const { error } = await supabase!.from("appointments").update({ status: "realizada" }).eq("id", a.id);
+    if (error) toast.error("No se pudo actualizar la cita.");
+    else reload();
+  };
+
+  const toggleActive = async (p: Profile) => {
+    const { error } = await supabase!.from("profiles").update({ active: !p.active }).eq("id", p.id);
+    if (error) toast.error("No se pudo actualizar el paciente.");
+    else {
+      toast.success(p.active ? "Acceso desactivado." : "Acceso activado.");
+      reload();
+    }
+  };
+
+  const openNew = (patientId?: string, date?: Date, time?: string) => {
+    setNewDefaults({ patientId, date, time });
+    setEditing("new");
+  };
+
+  // Desde la agenda: primero se elige si es una cita o un evento.
+  const chooseNew = (patientId?: string, date?: Date, time?: string) => {
+    setNewDefaults({ patientId, date, time });
+    setChoosingNew(true);
+  };
+
+  const setProcess = async (p: Profile, value: ProcessType) => {
+    const { error } = await supabase!.from("profiles").update({ process_type: value }).eq("id", p.id);
+    if (error) toast.error("No se pudo guardar el tipo de proceso.");
+    else reload();
+  };
+
+  const profilePatient = profileId ? (patients ?? []).find((p) => p.id === profileId) ?? null : null;
+
+  const alertFor = (a: Appointment) => paymentAlert(a, appointments ?? [], bonos ?? []);
+
+  if (!patients || !appointments || !bonos) {
+    return (
+      <AreaLayout title="Panel de consulta">
+        <Spinner className="size-6 text-primary" />
+      </AreaLayout>
+    );
+  }
+
+  const editButton = (a: Appointment) => (
+    <Button variant="ghost" size="sm" onClick={() => setEditing(a)} aria-label="Editar cita">
+      <Pencil className="size-4" />
+    </Button>
+  );
+
+  return (
+    <AreaLayout title="Panel de consulta">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="agenda">Agenda</TabsTrigger>
+          <TabsTrigger value="pacientes" onClick={() => profileId && closeProfile()}>Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
+          <TabsTrigger value="pagos">Pagos</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="agenda">
+          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-full lg:w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todos los pacientes</SelectItem>
+                {patients.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-full border border-border bg-secondary p-1" role="group" aria-label="Vista">
+                <Button variant={view === "calendario" ? "default" : "ghost"} size="sm" className="rounded-full"
+                  aria-pressed={view === "calendario"} onClick={() => setView("calendario")}>
+                  <CalendarDays className="size-4" />
+                  Calendario
+                </Button>
+                <Button variant={view === "lista" ? "default" : "ghost"} size="sm" className="rounded-full"
+                  aria-pressed={view === "lista"} onClick={() => setView("lista")}>
+                  <List className="size-4" />
+                  Lista
+                </Button>
+              </div>
+              <Button variant="outline" onClick={() => setCalendarOpen(true)} className="rounded-full"
+                title="Ver tu agenda en Google Calendar, el iPhone u Outlook" aria-label="Sincronizar con tu calendario">
+                <CalendarSyncIcon className="size-4" />
+                <span className="hidden sm:inline">Sincronizar</span>
+              </Button>
+              <Button variant="outline" onClick={() => setOpeningAgenda(true)} className="rounded-full"
+                title="Crear huecos libres que tus pacientes pueden reservar">
+                <CalendarRange className="size-4" />
+                Abrir agenda
+              </Button>
+              <Button onClick={() => chooseNew(filter === ALL ? undefined : filter)} className="rounded-full">
+                <CalendarPlus className="size-4" />
+                Añadir
+              </Button>
+            </div>
+          </div>
+          {patients.length === 0 && (
+            <p className="mb-6 text-muted-foreground">
+              Primero da de alta a un paciente desde la pestaña «Pacientes».
+            </p>
+          )}
+
+          {view === "calendario" ? (
+            <WeekCalendar
+              appointments={visible}
+              events={events}
+              openSlots={openSlots}
+              onSelectSlot={setSelectedSlot}
+              patientName={patientName}
+              notesFor={(a) => agendaNotes(a, appointments ?? [], notes)}
+              onSelect={(a) => setEditing(a)}
+              onSelectEvent={(ev) => setEditingEvent(ev)}
+              alertFor={alertFor}
+              isPsicolink={(d) => isPsicolinkDay(d, psicolinkDays)}
+              onTogglePsicolink={togglePsicolink}
+              onCreate={(date, time) => chooseNew(filter === ALL ? undefined : filter, date, time)}
+            />
+          ) : (
+            <div className="grid gap-10 lg:grid-cols-2">
+              <section>
+                <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Próximas</h2>
+                {upcoming.length === 0 ? (
+                  <p className="text-muted-foreground">No hay citas próximas.</p>
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {upcoming.map((a) => (
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)} showOrigin
+                        actions={editButton(a)} />
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <section>
+                <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Anteriores</h2>
+                {past.length === 0 ? (
+                  <p className="text-muted-foreground">No hay citas anteriores.</p>
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {past.map((a) => (
+                      <AppointmentItem key={a.id} appointment={a} title={patientName(a.patient_id)} alert={alertFor(a)} showOrigin
+                        actions={
+                          <>
+                            {a.status === "programada" && (
+                              <Button variant="outline" size="sm" onClick={() => markDone(a)}>
+                                Marcar realizada
+                              </Button>
+                            )}
+                            {editButton(a)}
+                          </>
+                        } />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="pacientes">
+          {profilePatient ? (
+            <PatientProfile
+              patient={profilePatient}
+              appointments={appointments}
+              bonos={bonos}
+              invoices={invoices}
+              invoiceSettings={invoiceSettings}
+              alertFor={alertFor}
+              onBack={closeProfile}
+              onNewAppointment={() => openNew(profilePatient.id)}
+              onEditAppointment={(a) => setEditing(a)}
+              onSellBono={() => setSellBonoFor({ patientId: profilePatient.id })}
+              onEditData={() => setEditingPatient(profilePatient)}
+              onInvite={() => setInviteExisting(profilePatient)}
+              onToggleActive={() => toggleActive(profilePatient)}
+              onSetProcess={(v) => setProcess(profilePatient, v)}
+              onChanged={reload}
+            />
+          ) : (<>
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Select value={patientStatus} onValueChange={(v) => setPatientStatus(v as PatientStatusFilter)}>
+                <SelectTrigger className="w-full sm:w-48" aria-label="Mostrar pacientes">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PATIENT_STATUS_LABEL) as PatientStatusFilter[]).map((k) => (
+                    <SelectItem key={k} value={k}>{PATIENT_STATUS_LABEL[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input type="search" value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)}
+                  placeholder="Buscar paciente…" aria-label="Buscar paciente"
+                  className="pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden" />
+                {patientQuery && (
+                  <button type="button" onClick={() => setPatientQuery("")} aria-label="Borrar búsqueda"
+                    className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <Button onClick={() => setInviteOpen(true)} className="rounded-full">
+              <UserPlus className="size-4" />
+              Nuevo paciente
+            </Button>
+          </div>
+          {listedPatients.length === 0 ? (
+            <p className="text-muted-foreground">
+              {patients.length === 0
+                ? "Todavía no hay pacientes."
+                : queryWords.length > 0
+                  ? `Ningún paciente coincide con «${patientQuery.trim()}».`
+                : patientStatus === "inactivos"
+                  ? "No hay pacientes inactivos."
+                  : "No hay pacientes activos."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {listedPatients.map((p) => {
+                const own = appointments.filter((a) => a.patient_id === p.id);
+                const next = own.find(
+                  (a) => new Date(a.starts_at).getTime() >= now && a.status === "programada"
+                );
+                const activeBono = bonos.find(
+                  (b) => b.patient_id === p.id && bonoRemaining(b, appointments) > 0
+                );
+                const invoiceCount = invoices.filter((inv) => inv.patient_id === p.id).length;
+                const pendingCents =
+                  own.filter((a) => isPendingPayment(a) && new Date(a.starts_at).getTime() <= now)
+                    .reduce((sum, a) => sum + a.price_cents, 0) +
+                  bonos.filter((b) => b.patient_id === p.id && !b.paid_at).reduce((sum, b) => sum + b.price_cents, 0);
+                return (
+                  <li key={p.id}
+                    className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 md:flex-row md:items-center md:justify-between">
+                    <button type="button" className="min-w-0 text-left" onClick={() => openProfile(p.id)}>
+                      <p className="font-medium text-foreground">
+                        {p.full_name || "(sin nombre)"}
+                        {!p.active && <span className="ml-2 text-sm text-destructive">· desactivado</span>}
+                      </p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {[p.email || "Sin email", p.phone, p.tax_id].filter(Boolean).join(" · ")}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {own.length} {own.length === 1 ? "cita" : "citas"}
+                        {next && ` · próxima: ${formatDay(next.starts_at)}, ${formatTime(next.starts_at)}`}
+                      </p>
+                      <span className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="border-border text-muted-foreground">
+                          {p.process_type ? PROCESS_LABEL[p.process_type] : "Proceso sin asignar"}
+                        </Badge>
+                        {!p.invited_at && (
+                          <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">
+                            Sin invitación enviada
+                          </Badge>
+                        )}
+                        {activeBono && (
+                          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                            Bono: quedan {bonoRemaining(activeBono, appointments)} de {activeBono.sessions_total}
+                          </Badge>
+                        )}
+                        {pendingCents > 0 && (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
+                            Pendiente {euros(pendingCents)}
+                          </Badge>
+                        )}
+                        {invoiceCount > 0 && (
+                          <Badge variant="outline" className="border-border text-muted-foreground">
+                            {invoiceCount} {invoiceCount === 1 ? "factura" : "facturas"}
+                          </Badge>
+                        )}
+                      </span>
+                    </button>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {!p.invited_at && (
+                        <Button variant="outline" size="sm" onClick={() => setInviteExisting(p)}>
+                          <Mail className="size-4" />
+                          Enviar invitación
+                        </Button>
+                      )}
+                      <Button size="sm" className="rounded-full" onClick={() => openProfile(p.id)}>
+                        Ver ficha
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          </>)}
+        </TabsContent>
+
+        <TabsContent value="pagos">
+          <PaymentsTab
+            patients={patients}
+            appointments={appointments}
+            bonos={bonos}
+            patientName={patientName}
+            onChanged={reload}
+            onSellBono={(patientId) => setSellBonoFor({ patientId })}
+            invoicing={
+              <InvoicingSection
+                patients={patients}
+                appointments={appointments}
+                bonos={bonos}
+                invoices={invoices}
+                settings={invoiceSettings}
+                patientName={patientName}
+                onChanged={reload}
+              />
+            }
+          />
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Tu agenda en tu calendario</DialogTitle>
+            <DialogDescription>Suscríbete una vez y la agenda se actualiza sola.</DialogDescription>
+          </DialogHeader>
+          <CalendarSync who="admin" />
+        </DialogContent>
+      </Dialog>
+      {editing && (
+        <AppointmentDialog
+          patients={patients.filter((p) => p.active || (editing !== "new" && p.id === editing.patient_id))}
+          appointment={editing === "new" ? null : editing}
+          appointments={appointments}
+          events={events}
+          bonos={bonos}
+          onRefresh={reload}
+          defaultPatientId={newDefaults.patientId}
+          defaultDate={newDefaults.date}
+          defaultTime={newDefaults.time}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
+        />
+      )}
+      {choosingNew && (
+        <NewEntryDialog
+          canAddAppointment={patients.some((p) => p.active)}
+          onClose={() => setChoosingNew(false)}
+          onAppointment={() => { setChoosingNew(false); setEditing("new"); }}
+          onEvent={() => { setChoosingNew(false); setEditingEvent("new"); }}
+        />
+      )}
+      {editingEvent && (
+        <EventDialog
+          event={editingEvent === "new" ? null : editingEvent}
+          defaultDate={newDefaults.date}
+          defaultTime={newDefaults.time}
+          onClose={() => setEditingEvent(null)}
+          onSaved={() => { setEditingEvent(null); reload(); }}
+        />
+      )}
+      {openingAgenda && (
+        <OpenAgendaDialog
+          defaultDate={newDefaults.date}
+          onClose={() => setOpeningAgenda(false)}
+          onSaved={() => { setOpeningAgenda(false); reload(); }}
+        />
+      )}
+      {selectedSlot && (
+        <SlotDialog
+          slot={selectedSlot}
+          onClose={() => setSelectedSlot(null)}
+          onClosed={() => { setSelectedSlot(null); reload(); }}
+          onConvert={() => {
+            // Al guardar la cita a la hora del hueco, la base de datos lo marca
+            // como reservado y lo enlaza con ella.
+            const start = new Date(selectedSlot.starts_at);
+            setSelectedSlot(null);
+            openNew(filter === ALL ? undefined : filter, start, format(start, "HH:mm"));
+          }}
+        />
+      )}
+      {editingPatient && (
+        <PatientDataDialog
+          patient={editingPatient}
+          onClose={() => setEditingPatient(null)}
+          onSaved={() => { setEditingPatient(null); reload(); }}
+        />
+      )}
+      {sellBonoFor && (
+        <BonoDialog
+          patients={patients}
+          defaultPatientId={sellBonoFor.patientId}
+          onClose={() => setSellBonoFor(null)}
+          onSaved={() => { setSellBonoFor(null); reload(); }}
+        />
+      )}
+      <NewPatientDialog open={inviteOpen} onOpenChange={setInviteOpen} onCreated={reload} />
+      {inviteExisting && (
+        <SendInviteDialog
+          patient={inviteExisting}
+          onClose={() => setInviteExisting(null)}
+          onInvited={() => { setInviteExisting(null); reload(); }}
+        />
+      )}
+    </AreaLayout>
+  );
+}
+
+type InviteResponse = { success?: boolean; invited?: boolean; message?: string };
+
+async function callInviteApi(token: string | undefined, payload: Record<string, unknown>): Promise<InviteResponse | null> {
+  try {
+    const resp = await fetch("/api/invite-patient", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token ?? ""}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = (await resp.json().catch(() => ({}))) as InviteResponse;
+    return resp.ok && body.success ? body : { ...body, success: false };
+  } catch {
+    return null;
+  }
+}
+
+function NewPatientDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: () => void;
+}) {
+  const { session } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [invite, setInvite] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const willInvite = Boolean(email.trim()) && invite;
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const body = await callInviteApi(session?.access_token, { fullName, email, phone, invite: willInvite });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo dar de alta al paciente.");
+      return;
+    }
+    toast.success(body.invited ? `Invitación enviada a ${email.trim()}.` : `${fullName.trim()} dado de alta.`);
+    setFullName("");
+    setEmail("");
+    setPhone("");
+    setInvite(true);
+    onOpenChange(false);
+    onCreated();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Nuevo paciente</DialogTitle>
+          <DialogDescription>
+            Si tienes su email, puedes invitarle para que vea sus citas. Si no, se da de alta igualmente y
+            podrás invitarle más adelante.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-name">Nombre completo</Label>
+            <Input id="inv-name" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-email">Email (opcional)</Label>
+            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-phone">Teléfono (opcional)</Label>
+            <Input id="inv-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          {email.trim() && (
+            <label className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
+              Enviar invitación al área privada
+              <Switch checked={invite} onCheckedChange={setInvite} />
+            </label>
+          )}
+          <DialogFooter>
+            <Button type="submit" disabled={busy} className="rounded-full">
+              {willInvite ? "Dar de alta y enviar invitación" : "Dar de alta"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SendInviteDialog({
+  patient,
+  onClose,
+  onInvited,
+}: {
+  patient: Profile;
+  onClose: () => void;
+  onInvited: () => void;
+}) {
+  const { session } = useAuth();
+  const [email, setEmail] = useState(patient.email);
+  const [busy, setBusy] = useState(false);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const body = await callInviteApi(session?.access_token, { profileId: patient.id, email });
+    setBusy(false);
+    if (!body?.success) {
+      toast.error(body?.message || "No se pudo enviar la invitación.");
+      return;
+    }
+    toast.success(`Invitación enviada a ${email.trim()}.`);
+    onInvited();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Enviar invitación</DialogTitle>
+          <DialogDescription>
+            {patient.full_name || "El paciente"} recibirá un email para crear su contraseña y verá sus citas y
+            bonos.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="inv-existing-email">Email</Label>
+            <Input id="inv-existing-email" type="email" required value={email}
+              onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={busy} className="rounded-full">Enviar invitación</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function Panel() {
+  return (
+    <RequireRole role="admin">
+      <PanelTerapeuta />
+    </RequireRole>
+  );
+}

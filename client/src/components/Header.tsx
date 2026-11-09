@@ -62,6 +62,7 @@ export default function Header() {
   const pageItems = [
     { path: "/blog", label: "BLOG" },
     { path: "/recursos", label: "RECURSOS" },
+    { path: "/acceso", label: "ÁREA PRIVADA" },
   ];
 
   return (

@@ -21,12 +21,12 @@ export default function Ansiedad() {
     AnalyticsEvents.visitLandingPage('ansiedad');
     
     // Actualizar meta tags para SEO y Google Ads
-    document.title = "Terapia Online para Ansiedad | Primera Sesión Gratuita";
+    document.title = "Terapia Online para Ansiedad | Sesión de Valoración Inicial";
     
     // Meta description
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
-       metaDescription.setAttribute('content', 'Terapia psicológica online para la ansiedad. Sesión de valoración inicial disponible. Psióloga especializada en tratamiento de ansiedad. Reserva tu sesión hoy.');
+       metaDescription.setAttribute('content', 'Terapia psicológica online para la ansiedad. Sesión de valoración inicial disponible. Psicóloga especializada en tratamiento de ansiedad. Reserva tu sesión hoy.');
     }
     
     // Open Graph tags
@@ -37,7 +37,7 @@ export default function Ansiedad() {
     
     const ogDescription = document.querySelector('meta[property="og:description"]');
     if (ogDescription) {
-       ogDescription.setAttribute('content', 'Terapia psicológica online para la ansiedad. Proceso terapéutico profesional. Psióloga especializada en tratamiento de ansiedad.');
+       ogDescription.setAttribute('content', 'Terapia psicológica online para la ansiedad. Proceso terapéutico profesional. Psicóloga especializada en tratamiento de ansiedad.');
     }
   }, []);
 

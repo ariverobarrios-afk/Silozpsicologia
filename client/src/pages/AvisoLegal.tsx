@@ -3,9 +3,11 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 export default function AvisoLegal() {
-  // Scroll to top when component mounts
+  // Al abrir: ir a la sección del enlace (p. ej. #area-privada) o arriba del todo
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const target = window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null;
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   return (
@@ -30,8 +32,12 @@ export default function AvisoLegal() {
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
                 <li><strong>Denominación:</strong> Siloz Psicología</li>
                 <li><strong>Responsable:</strong> Silvia López</li>
+                <li><strong>NIF:</strong> 03933796Z</li>
+                <li><strong>Colegio profesional:</strong> Colegio Oficial de la Psicología de Madrid</li>
+                <li><strong>Nº de colegiada:</strong> M-40562</li>
+                <li><strong>Titulación:</strong> Psicóloga General Sanitaria (título expedido en España)</li>
                 <li><strong>Actividad:</strong> Servicios de Psicología Online</li>
-                <li><strong>Sitio web:</strong> silozpsicología.com</li>
+                <li><strong>Sitio web:</strong> silozpsicologia.com</li>
                 <li><strong>Email de contacto:</strong> silozpsicologia@gmail.com</li>
               </ul>
             </section>
@@ -42,7 +48,7 @@ export default function AvisoLegal() {
                 2. Objeto
               </h2>
               <p className="text-muted-foreground leading-relaxed">
-                El presente Aviso Legal regula el uso y utilización del sitio web silozpsicologia.manus.space, del que es titular Silvia López. La navegación por el sitio web atribuye la condición de usuario del mismo e implica la aceptación plena y sin reservas de todas y cada una de las disposiciones incluidas en este Aviso Legal.
+                El presente Aviso Legal regula el uso y utilización del sitio web silozpsicologia.com, del que es titular Silvia López. La navegación por el sitio web atribuye la condición de usuario del mismo e implica la aceptación plena y sin reservas de todas y cada una de las disposiciones incluidas en este Aviso Legal.
               </p>
             </section>
 
@@ -63,11 +69,14 @@ export default function AvisoLegal() {
                 3.2. Finalidad del Tratamiento
               </h3>
               <p className="text-muted-foreground leading-relaxed">
-                Los datos personales que se recogen a través del formulario de contacto tienen como finalidad:
+                Los datos personales que se recogen a través del formulario de contacto y del área privada de pacientes tienen como finalidad:
               </p>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
                 <li>Gestionar las consultas y solicitudes de información realizadas por los usuarios</li>
                 <li>Facilitar el contacto para la reserva de citas y sesiones de terapia</li>
+                <li>Gestionar la agenda de citas de los pacientes en terapia y permitirles consultarlas, reservarlas y cancelarlas en su área privada</li>
+                <li>Recoger y conservar la firma del consentimiento informado y de las normas del servicio</li>
+                <li>Llevar el control administrativo de los pagos de las sesiones y bonos</li>
                 <li>Enviar información sobre los servicios de psicología ofrecidos</li>
                 <li>Cumplir con las obligaciones legales aplicables</li>
               </ul>
@@ -76,25 +85,56 @@ export default function AvisoLegal() {
                 3.3. Legitimación
               </h3>
               <p className="text-muted-foreground leading-relaxed">
-                La base legal para el tratamiento de sus datos es el consentimiento expreso del interesado, otorgado mediante el envío del formulario de contacto. El usuario puede retirar su consentimiento en cualquier momento, sin que ello afecte a la licitud del tratamiento basado en el consentimiento previo a su retirada.
+                La base legal para el tratamiento de los datos del formulario de contacto es el consentimiento expreso del interesado, otorgado mediante el envío del formulario. El usuario puede retirar su consentimiento en cualquier momento, sin que ello afecte a la licitud del tratamiento basado en el consentimiento previo a su retirada.
+              </p>
+              <p className="text-muted-foreground leading-relaxed mt-4">
+                Los datos del área privada de pacientes se tratan para la prestación del servicio de psicología solicitado por el paciente (art. 6.1.b RGPD) y, dado que la asistencia psicológica puede revelar información relativa a la salud, con el consentimiento explícito que el paciente presta al firmar el consentimiento informado en su área privada (art. 9.2.a RGPD) y al amparo del art. 9.2.h RGPD (prestación de asistencia sanitaria), bajo el deber de secreto profesional. Los datos de facturación y pagos se conservan además para el cumplimiento de obligaciones legales (art. 6.1.c RGPD).
               </p>
 
               <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
                 3.4. Conservación de Datos
               </h3>
               <p className="text-muted-foreground leading-relaxed">
-                Los datos personales proporcionados se conservarán mientras no se solicite su supresión por el interesado o durante el tiempo necesario para cumplir con las obligaciones legales aplicables. En el caso de iniciar un proceso terapéutico, los datos se conservarán de acuerdo con la normativa profesional y sanitaria vigente.
+                Los datos personales proporcionados se conservarán mientras no se solicite su supresión por el interesado o durante el tiempo necesario para cumplir con las obligaciones legales aplicables. En el caso de iniciar un proceso terapéutico, los datos se conservarán de acuerdo con la normativa profesional y sanitaria vigente. Los datos relativos a pagos se conservarán durante los plazos exigidos por la normativa fiscal y contable.
               </p>
 
-              <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
-                3.5. Destinatarios
+              <h3 id="area-privada" className="font-serif text-xl font-semibold text-foreground mt-6 mb-3 scroll-mt-28">
+                3.5. Área Privada de Pacientes
               </h3>
               <p className="text-muted-foreground leading-relaxed">
-                Los datos personales no serán cedidos a terceros, salvo obligación legal. Se utilizan servicios de terceros para el almacenamiento y gestión de datos (Google Sheets), que actúan como encargados del tratamiento y cumplen con el RGPD.
+                Las personas que están en proceso terapéutico pueden disponer, por invitación de la psicóloga, de un acceso privado en este sitio web para consultar y reservar sus citas, firmar el consentimiento informado y descargar sus documentos y facturas. En el área privada se tratan:
+              </p>
+              <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
+                <li>Datos identificativos y de contacto: nombre y apellidos, DNI/NIE, fecha de nacimiento, email y, opcionalmente, teléfono</li>
+                <li>Datos de la agenda: fecha, hora, duración y estado de cada cita, incluidas las que el paciente reserve o cancele desde su área</li>
+                <li>Datos administrativos: tipo de proceso (individual o de pareja), tarifa aplicada, bonos, estado de los pagos y facturas</li>
+                <li>Documentos firmados: el consentimiento informado y las normas del servicio, en PDF, con la firma manuscrita y las evidencias de la firma (fecha y hora, dirección IP y navegador desde el que se firmó)</li>
+                <li>Notas de sesión que la psicóloga registra para el seguimiento terapéutico</li>
+              </ul>
+              <p className="text-muted-foreground leading-relaxed mt-4">
+                Las <strong>notas de sesión</strong> solo las ve la psicóloga: el paciente no tiene acceso a ellas desde su área. Como apoyo a la documentación clínica, la psicóloga puede usar una herramienta de inteligencia artificial con sus notas de sesión (y las de hasta cinco sesiones anteriores, para dar continuidad): se envía solo el texto de las notas, sin el nombre, el DNI ni los datos de contacto del paciente. La herramienta no hace diagnósticos ni toma decisiones; propone unas «claves de mi proceso» (aprendizajes y reflexiones de la sesión) que la psicóloga revisa y, si lo considera oportuno, publica en el área privada del paciente. El paciente puede oponerse a este uso en cualquier momento escribiendo a silozpsicologia@gmail.com, sin que afecte a la atención que recibe. El acceso está protegido con contraseña personal y cada paciente solo puede ver su propia información. El paciente puede reservar y cancelar citas en los huecos que abra la psicóloga; el resto de cambios en la agenda solo los hace la psicóloga. Las comunicaciones viajan cifradas y los datos se almacenan en servidores ubicados en la Unión Europea. El paciente puede solicitar en cualquier momento la desactivación de su acceso o la supresión de sus datos, sin perjuicio de los plazos de conservación legalmente obligatorios.
               </p>
 
               <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
-                3.6. Derechos del Usuario
+                3.6. Destinatarios y Encargados del Tratamiento
+              </h3>
+              <p className="text-muted-foreground leading-relaxed">
+                Los datos personales no serán cedidos a terceros, salvo obligación legal. Para prestar el servicio se utilizan los siguientes proveedores, que actúan como encargados del tratamiento con los que se han suscrito los correspondientes contratos de encargo:
+              </p>
+              <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
+                <li><strong>Supabase:</strong> base de datos, autenticación y almacenamiento de los documentos firmados del área privada (servidores en Fráncfort, Alemania, UE)</li>
+                <li><strong>Resend:</strong> envío de los emails del área privada: acceso, avisos de citas y copia firmada del consentimiento (región de envío en Irlanda, UE)</li>
+                <li><strong>Vercel:</strong> alojamiento del sitio web</li>
+                <li><strong>Google (Gmail y Google Sheets):</strong> recepción y registro de las solicitudes del formulario de contacto</li>
+                <li><strong>Google Meet:</strong> plataforma de videollamada de las sesiones online</li>
+                <li><strong>Anthropic (Anthropic Ireland, Limited; matriz Anthropic, PBC, en Estados Unidos):</strong> herramienta de inteligencia artificial para elaborar las «claves de mi proceso» a partir de las notas de sesión. No usa los datos para entrenar sus modelos y los borra en un máximo de 30 días, salvo el contenido que marquen sus sistemas de seguridad, que puede conservar hasta 2 años. El tratamiento puede realizarse en Estados Unidos, con las cláusulas contractuales tipo aprobadas por la Comisión Europea</li>
+              </ul>
+              <p className="text-muted-foreground leading-relaxed mt-4">
+                Algunos de estos proveedores tienen sede en Estados Unidos. En esos casos, las posibles transferencias internacionales de datos se amparan en las garantías previstas en el RGPD, como el Marco de Privacidad de Datos UE-EE. UU. o las cláusulas contractuales tipo aprobadas por la Comisión Europea.
+              </p>
+
+              <h3 className="font-serif text-xl font-semibold text-foreground mt-6 mb-3">
+                3.7. Derechos del Usuario
               </h3>
               <p className="text-muted-foreground leading-relaxed">
                 Los usuarios tienen derecho a:
@@ -109,7 +149,7 @@ export default function AvisoLegal() {
                 <li><strong>Retirada del consentimiento:</strong> Retirar el consentimiento en cualquier momento</li>
               </ul>
               <p className="text-muted-foreground leading-relaxed mt-4">
-                Para ejercer estos derechos, puede contactar a través del email: contacto@silozpsicologia.com. Asimismo, tiene derecho a presentar una reclamación ante la Agencia Española de Protección de Datos (www.aepd.es).
+                Para ejercer estos derechos, puede contactar a través del email: silozpsicologia@gmail.com. Asimismo, tiene derecho a presentar una reclamación ante la Agencia Española de Protección de Datos (www.aepd.es).
               </p>
             </section>
 
@@ -133,7 +173,7 @@ export default function AvisoLegal() {
                 Este sitio web utiliza las siguientes cookies:
               </p>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
-                <li><strong>Cookies técnicas:</strong> Necesarias para la navegación y el buen funcionamiento del sitio web. Permiten recordar la aceptación del banner de cookies.</li>
+                <li><strong>Cookies técnicas:</strong> Necesarias para la navegación y el buen funcionamiento del sitio web. Permiten recordar la aceptación del banner de cookies y, en el área privada de pacientes, mantener la sesión iniciada (almacenamiento local del navegador).</li>
                 <li><strong>Cookies analíticas:</strong> Utilizadas para analizar el uso del sitio web mediante herramientas de análisis (Umami Analytics). Estas cookies son anónimas y no identifican personalmente a los usuarios.</li>
               </ul>
 
@@ -206,7 +246,7 @@ export default function AvisoLegal() {
                 Siloz Psicología se reserva el derecho a modificar el presente Aviso Legal en cualquier momento. Los usuarios serán informados de cualquier cambio sustancial mediante aviso en el sitio web.
               </p>
               <p className="text-muted-foreground leading-relaxed mt-4">
-                <strong>Última actualización:</strong> Diciembre 2024
+                <strong>Última actualización:</strong> Octubre 2026
               </p>
             </section>
           </div>

@@ -21,12 +21,12 @@ export default function Depresion() {
     AnalyticsEvents.visitLandingPage('depresion');
     
     // Actualizar meta tags para SEO y Google Ads
-    document.title = "Terapia Online para Depresión | Primera Sesión Gratuita";
+    document.title = "Terapia Online para Depresión | Sesión de Valoración Inicial";
     
     // Meta description
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
-       metaDescription.setAttribute('content', 'Terapia psicológica online para la depresión. Sesión de valoración inicial disponible. Psióloga especializada en tratamiento de depresión. Reserva tu sesión hoy.');
+       metaDescription.setAttribute('content', 'Terapia psicológica online para la depresión. Sesión de valoración inicial disponible. Psicóloga especializada en tratamiento de depresión. Reserva tu sesión hoy.');
     }
     
     // Open Graph tags
@@ -37,7 +37,7 @@ export default function Depresion() {
     
     const ogDescription = document.querySelector('meta[property="og:description"]');
     if (ogDescription) {
-       ogDescription.setAttribute('content', 'Terapia psicológica online para la depresión. Proceso terapéutico profesional. Psióloga especializada en tratamiento de depresión.');
+       ogDescription.setAttribute('content', 'Terapia psicológica online para la depresión. Proceso terapéutico profesional. Psicóloga especializada en tratamiento de depresión.');
     }
   }, []);
 
