@@ -107,12 +107,6 @@ export function AppointmentDialog({
     [appointments, patientId, appointment]
   );
 
-  // La primera sesión de un paciente se cobra siempre como tal: nunca con bono.
-  // (Una cita que ya estaba guardada con bono se respeta para no dejarla sin tarifa.)
-  const bonoBlocked =
-    appointment?.session_type !== "bono" &&
-    (isFirst || sessionType === "primera" || appointment?.session_type === "primera");
-
   // Solo puede haber una primera sesión (no cancelada) por paciente.
   const hasOtherFirst = useMemo(
     () =>
@@ -137,15 +131,17 @@ export function AppointmentDialog({
   );
 
   // Al elegir paciente en una cita nueva, proponer la tarifa adecuada:
-  // primera sesión → bono con sesiones libres → tarifa de su proceso.
+  // bono con sesiones libres → primera sesión → tarifa de su proceso.
+  // (Quien ya tiene un bono sin ninguna cita registrada viene de antes: su
+  // primera cita aquí no es su primera sesión y se descuenta del bono.)
   useEffect(() => {
     if (appointment || !patientId) return;
     setProcessType(patient?.process_type ?? "");
-    if (isFirst) {
-      setSessionType("primera");
-    } else if (usableBonos.length > 0) {
+    if (usableBonos.length > 0) {
       setSessionType("bono");
       setBonoId(usableBonos[0].id);
+    } else if (isFirst) {
+      setSessionType("primera");
     } else {
       setSessionType(patient?.process_type === "pareja" ? "pareja" : "individual");
     }
@@ -485,7 +481,7 @@ export function AppointmentDialog({
             <Label htmlFor="tarifa">Tarifa</Label>
             {/* key: al aparecer la opción de bono (p. ej. tras venderlo aquí) el
                 desplegable se monta de nuevo; si no, pierde el valor elegido. */}
-            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}-${bonoBlocked}-${paidBlocksBono}`} value={sessionType} onValueChange={(v) => {
+            <Select key={`${usableBonos.length > 0}-${hasOtherFirst}-${paidBlocksBono}`} value={sessionType} onValueChange={(v) => {
               // Radix Select a veces emite "" al cambiar sus opciones: se ignora.
               if (!v) return;
               setSessionType(v as SessionType);
@@ -507,22 +503,17 @@ export function AppointmentDialog({
                     {SESSION_TYPES[appointment.session_type].label} · {euros(appointment.price_cents)}
                   </SelectItem>
                 )}
-                {usableBonos.length > 0 && !bonoBlocked && !paidBlocksBono && (
+                {usableBonos.length > 0 && !paidBlocksBono && (
                   <SelectItem value="bono">Descontar de un bono</SelectItem>
                 )}
               </SelectContent>
             </Select>
-            {patientId && bonoBlocked && (
-              <p className="text-xs text-muted-foreground">
-                La primera sesión no se puede pagar con bono.
-              </p>
-            )}
-            {patientId && paidBlocksBono && !bonoBlocked && (
+            {patientId && paidBlocksBono && (
               <p className="text-xs text-muted-foreground">
                 Esta cita está marcada como pagada, así que no se puede pasar a un bono.
               </p>
             )}
-            {patientId && usableBonos.length === 0 && !sellingBono && !bonoBlocked && !paidBlocksBono && (
+            {patientId && usableBonos.length === 0 && !sellingBono && !paidBlocksBono && (
               <Button type="button" variant="outline" size="sm" className="h-auto self-start whitespace-normal py-1.5 text-left"
                 onClick={() => setSellingBono(true)}>
                 <Ticket className="size-4" />
