@@ -143,6 +143,8 @@ select pg_temp.expect_error(format('select public.close_agenda_slot(%L)', :'slot
 
 -- ── 3. Reservar (como el servidor, service_role) ────────────────────────────
 reset role;
+-- P4 tiene tarifa especial: 50 € la sesión suelta.
+update public.profiles set special_price_cents = 5000 where id = :'p4';
 set role service_role;
 
 -- Una cita por semana: P4 ya tiene cita manual el martes de wk.
@@ -151,6 +153,8 @@ select pg_temp.ok((select status from public.agenda_slots where id = :'slot_mon1
 -- La semana siguiente sí puede.
 select public.book_slot(:'p4', :'slot_wk2_10') as r \gset
 select pg_temp.ok((:'r'::jsonb ->> 'session_type') = 'individual', 'P4 (con historial) reserva con tarifa individual');
+select pg_temp.ok((select price_cents from public.appointments where id = (:'r'::jsonb ->> 'appointment_id')::uuid) = 5000,
+                  'la reserva de P4 aplica su tarifa especial');
 
 -- Reserva normal de P1 (primera sesión) con comentario.
 select public.book_slot(:'p1', :'slot_mon10', '  Prefiero videollamada  ') as r \gset

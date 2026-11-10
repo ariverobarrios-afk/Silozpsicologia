@@ -36,7 +36,7 @@ import {
   type Profile,
   type SessionType,
 } from "@/lib/supabase";
-import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoSessionNumber, euros, overdueDebts } from "@/lib/tariffs";
+import { BONO, PROCESS_LABEL, SESSION_TYPES, bonoRemaining, bonoSessionNumber, euros, overdueDebts, tariffPrice } from "@/lib/tariffs";
 import { fromInputs, toTimeInput } from "./format";
 import { PaymentDialog, PaymentFields, newPaymentInput, paymentInputError, registerPayment, type PaymentInput } from "./PaymentDialog";
 
@@ -87,6 +87,8 @@ export function AppointmentDialog({
   const [processType, setProcessType] = useState<ProcessType | "">("");
   const [busy, setBusy] = useState(false);
   const [sellingBono, setSellingBono] = useState(false);
+  // Aplicar a esta cita ya guardada la tarifa actual del paciente.
+  const [repriced, setRepriced] = useState(false);
   const [bonoPaidNow, setBonoPaidNow] = useState(false);
   // Datos del cobro cuando se marca como pagada aquí (esta cita o el bono vendido).
   const [payment, setPayment] = useState<PaymentInput>(newPaymentInput);
@@ -221,11 +223,19 @@ export function AppointmentDialog({
   const regularType: SessionType = effectiveProcess === "pareja" ? "pareja" : "individual";
 
   // Precio: se mantiene el de la cita si no cambia su tarifa (puede haber
-  // cambiado la lista de precios desde entonces).
-  const price =
-    sessionType === "" ? 0
-    : appointment && appointment.session_type === sessionType ? appointment.price_cents
-    : SESSION_TYPES[sessionType].price_cents;
+  // cambiado la lista de precios o la tarifa especial del paciente desde
+  // entonces), salvo que Silvia pida aplicarle la tarifa actual.
+  const currentPrice = sessionType === "" ? 0 : tariffPrice(sessionType, patient);
+  const keepsPrice = Boolean(appointment) && appointment?.session_type === sessionType;
+  const price = keepsPrice && !repriced ? appointment!.price_cents : currentPrice;
+  // Lo que cuesta la sesión suelta en esta cita (el desplegable lo muestra).
+  const regularPrice =
+    appointment?.session_type === regularType && !repriced
+      ? appointment.price_cents
+      : tariffPrice(regularType, patient);
+  // Solo se ofrece cambiar el precio de una cita sin cobrar.
+  const canReprice =
+    keepsPrice && !repriced && !paid && !appointment?.paid_at && appointment!.price_cents !== currentPrice;
 
   // Se marca como pagada ahora (antes no lo estaba): hay que pedir fecha y método.
   const newlyPaid = paid && sessionType !== "" && sessionType !== "bono" && !appointment?.paid_at;
@@ -495,7 +505,8 @@ export function AppointmentDialog({
                   </SelectItem>
                 )}
                 <SelectItem value={regularType}>
-                  {SESSION_TYPES[regularType].label} · {euros(SESSION_TYPES[regularType].price_cents)}
+                  {SESSION_TYPES[regularType].label} · {euros(regularPrice)}
+                  {regularPrice === patient?.special_price_cents ? " (tarifa especial)" : ""}
                 </SelectItem>
                 {appointment && appointment.session_type !== regularType &&
                   appointment.session_type !== "primera" && appointment.session_type !== "bono" && (
@@ -567,6 +578,12 @@ export function AppointmentDialog({
               <div>
                 <p className="text-sm font-medium text-foreground">Importe: {euros(price)}</p>
                 <p className="text-xs text-muted-foreground">{paid ? "Cobrada" : "Pendiente de cobro"}</p>
+                {canReprice && (
+                  <button type="button" className="mt-1 text-left text-xs font-medium text-primary underline underline-offset-2"
+                    onClick={() => setRepriced(true)}>
+                    Aplicar su tarifa actual ({euros(currentPrice)})
+                  </button>
+                )}
               </div>
               <label className="flex items-center gap-2 text-sm">
                 Pagada

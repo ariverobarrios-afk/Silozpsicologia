@@ -37,6 +37,7 @@ export interface Profile {
   phone: string | null;
   active: boolean;
   process_type: ProcessType | null;
+  special_price_cents: number | null; // tarifa especial de la sesión suelta (null = la normal)
   tax_id: string | null; // DNI/NIF para las facturas
   address: string | null;
   invited_at: string | null; // null = nunca se le ha enviado la invitación
