@@ -1,11 +1,21 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { format } from "date-fns";
-import { ArrowLeft, CalendarPlus, FileText, IdCard, Mail, Pencil, Ticket } from "lucide-react";
+import { ArrowLeft, CalendarPlus, FileText, IdCard, Mail, Pencil, Tag, Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -93,6 +103,7 @@ export function PatientProfile({
   onChanged: () => void;
 }) {
   const [paying, setPaying] = useState<{ kind: "cita" | "bono"; id: string; label: string } | null>(null);
+  const [editingPrice, setEditingPrice] = useState(false);
   const now = Date.now();
 
   // Cobros de este paciente aún sin factura: se facturan con el mismo cuadro y
@@ -181,6 +192,11 @@ export function PatientProfile({
                   ))}
                 </SelectContent>
               </Select>
+              <Button variant="outline" size="sm" className="h-7 rounded-md px-2.5 text-xs font-normal"
+                onClick={() => setEditingPrice(true)}>
+                <Tag className="size-3.5" />
+                {p.special_price_cents ? `Tarifa especial: ${euros(p.special_price_cents)}` : "Tarifa normal"}
+              </Button>
               {!p.invited_at && (
                 <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">Sin invitación enviada</Badge>
               )}
@@ -449,6 +465,13 @@ export function PatientProfile({
           }}
         />
       )}
+      {editingPrice && (
+        <SpecialPriceDialog
+          patient={p}
+          onClose={() => setEditingPrice(false)}
+          onSaved={() => { setEditingPrice(false); onChanged(); }}
+        />
+      )}
       {paying && (
         <PaymentDialog
           kind={paying.kind}
@@ -460,5 +483,75 @@ export function PatientProfile({
         />
       )}
     </div>
+  );
+}
+
+// Tarifa especial del paciente: precio acordado para su sesión suelta.
+function SpecialPriceDialog({
+  patient,
+  onClose,
+  onSaved,
+}: {
+  patient: Profile;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const regular = SESSION_TYPES[patient.process_type === "pareja" ? "pareja" : "individual"];
+  const [value, setValue] = useState(
+    patient.special_price_cents ? String(patient.special_price_cents / 100).replace(".", ",") : ""
+  );
+  const [busy, setBusy] = useState(false);
+
+  const save = async (cents: number | null) => {
+    setBusy(true);
+    const { error } = await supabase!.from("profiles").update({ special_price_cents: cents }).eq("id", patient.id);
+    setBusy(false);
+    if (error) {
+      toast.error("No se pudo guardar la tarifa.");
+      return;
+    }
+    toast.success(cents ? `Tarifa especial guardada: ${euros(cents)} por sesión.` : "Vuelve a tener la tarifa normal.");
+    onSaved();
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const amount = Number(value.trim().replace(",", "."));
+    const cents = Math.round(amount * 100);
+    if (!value.trim() || !Number.isFinite(amount) || cents <= 0) {
+      toast.error("Escribe el precio por sesión, por ejemplo 50.");
+      return;
+    }
+    void save(cents);
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Tarifa especial</DialogTitle>
+          <DialogDescription>
+            Precio de la sesión suelta de {patient.full_name || patient.email} en lugar de la tarifa normal
+            ({regular.label.toLowerCase()}, {euros(regular.price_cents)}). Se aplica a las citas que se creen a
+            partir de ahora; la primera sesión y los bonos no cambian.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="special-price">Precio por sesión (€)</Label>
+            <Input id="special-price" inputMode="decimal" autoFocus placeholder="50"
+              value={value} onChange={(e) => setValue(e.target.value)} />
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {patient.special_price_cents ? (
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => void save(null)}>
+                Volver a la tarifa normal
+              </Button>
+            ) : <span />}
+            <Button type="submit" disabled={busy} className="rounded-full">Guardar</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

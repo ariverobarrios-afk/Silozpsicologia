@@ -1,4 +1,4 @@
-import type { Appointment, Bono, ProcessType, SessionType } from "./supabase";
+import type { Appointment, Bono, ProcessType, Profile, SessionType } from "./supabase";
 
 // Tarifas vigentes de la consulta. El precio se copia en cada cita al crearla,
 // así que cambiar estas cifras no altera el historial.
@@ -8,6 +8,19 @@ export const SESSION_TYPES: Record<SessionType, { label: string; price_cents: nu
   pareja: { label: "Sesión de pareja", price_cents: 7000 },
   bono: { label: "Sesión de bono", price_cents: 0 },
 };
+
+// Precio de una tarifa para un paciente: si tiene tarifa especial, sustituye a
+// la de la sesión suelta (individual o de pareja); la primera sesión no cambia.
+// (La reserva del paciente hace lo mismo en book_slot, supabase/schema.sql.)
+export function tariffPrice(
+  type: SessionType,
+  patient?: Pick<Profile, "special_price_cents"> | null
+): number {
+  if ((type === "individual" || type === "pareja") && patient?.special_price_cents) {
+    return patient.special_price_cents;
+  }
+  return SESSION_TYPES[type].price_cents;
+}
 
 export const BONO = { sessions: 5, price_cents: 25000, label: "Bono 5 sesiones" };
 
