@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { format } from "date-fns";
-import { AlertTriangle, ChevronDown, ChevronUp, FileText, Settings2 } from "lucide-react";
+import { endOfMonth, endOfQuarter, endOfYear, format, startOfMonth, startOfQuarter, startOfYear, subMonths } from "date-fns";
+import { AlertTriangle, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,6 +32,7 @@ import {
   type PaymentMethod,
   type Profile,
 } from "@/lib/supabase";
+import { downloadInvoicesExcel } from "@/lib/invoiceExport";
 import { billablePayments, invoiceCode, openInvoice, type BillablePayment } from "@/lib/invoices";
 import { euros } from "@/lib/tariffs";
 import { ShowMoreList } from "./ShowMoreList";
@@ -64,6 +65,7 @@ export function InvoicingSection({
   const [issuing, setIssuing] = useState<BillablePayment[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Filtros de las facturas emitidas.
   const [patientFilter, setPatientFilter] = useState(ALL_PATIENTS);
@@ -121,7 +123,14 @@ export function InvoicingSection({
 
       <div className="grid items-start gap-8 lg:grid-cols-2">
         <section className="flex min-w-0 flex-col">
-          <h2 className="mb-4 font-serif text-2xl font-semibold text-foreground">Facturas emitidas</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-serif text-2xl font-semibold text-foreground">Facturas emitidas</h2>
+            <Button variant="outline" className="rounded-full" disabled={invoices.length === 0}
+              onClick={() => setExportOpen(true)}>
+              <FileSpreadsheet className="size-4" />
+              Descargar Excel
+            </Button>
+          </div>
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1 sm:col-span-3">
               <Label className="text-xs text-muted-foreground">Paciente</Label>
@@ -271,6 +280,16 @@ export function InvoicingSection({
           }}
         />
       )}
+      {exportOpen && (
+        <ExportDialog
+          invoices={invoices}
+          patientFilter={patientFilter}
+          patientLabel={patientFilter === ALL_PATIENTS ? null : patientName(patientFilter)}
+          initialFrom={from}
+          initialTo={to}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
       {settingsOpen && settings && (
         <SettingsDialog
           settings={settings}
@@ -280,6 +299,124 @@ export function InvoicingSection({
         />
       )}
     </div>
+  );
+}
+
+// Descarga en Excel de las facturas emitidas entre dos fechas (p. ej. el mes
+// pasado, para mandárselo al gestor). Respeta el filtro de paciente activo.
+function ExportDialog({
+  invoices,
+  patientFilter,
+  patientLabel,
+  initialFrom,
+  initialTo,
+  onClose,
+}: {
+  invoices: Invoice[];
+  patientFilter: string;
+  patientLabel: string | null;
+  initialFrom: string;
+  initialTo: string;
+  onClose: () => void;
+}) {
+  const key = (d: Date) => format(d, "yyyy-MM-dd");
+  const now = new Date();
+  const lastMonth = subMonths(now, 1);
+  const presets: { label: string; from: string; to: string }[] = [
+    { label: "Mes pasado", from: key(startOfMonth(lastMonth)), to: key(endOfMonth(lastMonth)) },
+    { label: "Este mes", from: key(startOfMonth(now)), to: key(endOfMonth(now)) },
+    { label: "Este trimestre", from: key(startOfQuarter(now)), to: key(endOfQuarter(now)) },
+    { label: "Este año", from: key(startOfYear(now)), to: key(endOfYear(now)) },
+  ];
+  // Por defecto, las fechas de los filtros; si no hay, el mes pasado.
+  const [from, setFrom] = useState(initialFrom || initialTo ? initialFrom : presets[0].from);
+  const [to, setTo] = useState(initialFrom || initialTo ? initialTo : presets[0].to);
+  const [onlyPatient, setOnlyPatient] = useState(patientLabel !== null);
+  const [busy, setBusy] = useState(false);
+
+  const selection = invoices
+    .filter((inv) => !onlyPatient || inv.patient_id === patientFilter)
+    .filter((inv) => (!from || inv.issue_date >= from) && (!to || inv.issue_date <= to));
+  const total = selection.reduce((s, inv) => s + inv.total_cents, 0);
+
+  const fileName = () => {
+    const preset = presets.find((p) => p.from === from && p.to === to);
+    let period: string;
+    if (from && to && from.slice(0, 7) === to.slice(0, 7) && from.endsWith("-01") && to === key(endOfMonth(new Date(`${from}T12:00:00`)))) {
+      period = from.slice(0, 7); // un mes completo: facturas_2026-10
+    } else if (preset?.label === "Este año") {
+      period = from.slice(0, 4);
+    } else {
+      period = `${from || "inicio"}_a_${to || "hoy"}`;
+    }
+    const who = onlyPatient && patientLabel
+      ? `_${patientLabel.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
+      : "";
+    return `facturas_${period}${who}.xlsx`;
+  };
+
+  const onDownload = async () => {
+    setBusy(true);
+    try {
+      await downloadInvoicesExcel(selection, fileName());
+      onClose();
+    } catch {
+      toast.error("No se pudo generar el Excel.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Descargar facturas en Excel</DialogTitle>
+          <DialogDescription>
+            Elige el periodo por fecha de factura. Una fila por factura, con los totales al final.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p) => (
+              <Button key={p.label} type="button" size="sm" className="rounded-full"
+                variant={p.from === from && p.to === to ? "default" : "outline"}
+                onClick={() => { setFrom(p.from); setTo(p.to); }}>
+                {p.label}
+              </Button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="exp-from">Desde</Label>
+              <Input id="exp-from" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="exp-to">Hasta</Label>
+              <Input id="exp-to" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </div>
+          {patientLabel && (
+            <label className="flex items-center gap-3 text-sm">
+              <Checkbox checked={onlyPatient} onCheckedChange={(v) => setOnlyPatient(v === true)} />
+              Solo las de {patientLabel}
+            </label>
+          )}
+          <p className="text-sm text-muted-foreground">
+            {selection.length === 0
+              ? "No hay facturas en ese periodo."
+              : `${selection.length} ${selection.length === 1 ? "factura" : "facturas"} · ${euros(total)}`}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button type="button" className="rounded-full" disabled={busy || selection.length === 0} onClick={onDownload}>
+            <FileSpreadsheet className="size-4" />
+            Descargar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
