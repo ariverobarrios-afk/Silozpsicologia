@@ -246,7 +246,7 @@ function PanelTerapeuta() {
         <TabsList className="mb-6">
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="pacientes" onClick={() => profileId && closeProfile()}>Pacientes ({patients.filter((p) => p.active).length})</TabsTrigger>
-          <TabsTrigger value="pagos">Pagos</TabsTrigger>
+          <TabsTrigger value="pagos">Gestión financiera</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agenda">

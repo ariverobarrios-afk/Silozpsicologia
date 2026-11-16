@@ -112,7 +112,7 @@ export function PatientProfile({
   const now = Date.now();
 
   // Cobros de este paciente aún sin factura: se facturan con el mismo cuadro y
-  // las mismas reglas (numeración y fechas correlativas) que en Pagos → Facturas.
+  // las mismas reglas (numeración y fechas correlativas) que en Gestión financiera → Facturas.
   const toInvoice = useMemo(
     () => billablePayments(appointments, bonos, invoices).filter((x) => x.patient_id === p.id),
     [appointments, bonos, invoices, p.id],
@@ -136,7 +136,7 @@ export function PatientProfile({
       toast.error("No se pudo guardar.");
       return;
     }
-    toast.success("Pago marcado como «no facturar». Se puede recuperar en Pagos → Facturas.");
+    toast.success("Pago marcado como «no facturar». Se puede recuperar en Gestión financiera → Facturas.");
     onChanged();
   };
 
