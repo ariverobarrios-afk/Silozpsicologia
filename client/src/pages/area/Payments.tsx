@@ -136,6 +136,7 @@ export function PaymentsTab({
 
   // Marcar como pagado abre el cuadro de cobro (fecha, método y factura).
   const [paying, setPaying] = useState<{ kind: "cita" | "bono"; id: string; title: string; description: string } | null>(null);
+  const [bonoFilter, setBonoFilter] = useState<"pendientes" | "consumidos">("pendientes");
 
   const markAppointmentPaid = (a: Appointment) =>
     setPaying({
@@ -170,6 +171,12 @@ export function PaymentsTab({
   };
 
   const sortedBonos = [...bonos].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  // Bonos consumidos (todas las sesiones usadas) en un filtro aparte; por
+  // defecto se ven los que aún tienen sesiones pendientes.
+  const consumedBono = (b: Bono) => bonoUsed(b, appointments) >= b.sessions_total;
+  const consumedBonos = sortedBonos.filter(consumedBono);
+  const activeBonos = sortedBonos.filter((b) => !consumedBono(b));
+  const shownBonos = bonoFilter === "consumidos" ? consumedBonos : activeBonos;
   const pendingCount = pendingDue.length + unpaidBonos.length;
 
   return (
@@ -285,11 +292,25 @@ export function PaymentsTab({
             Vender bono
           </Button>
         </div>
+        {sortedBonos.length > 0 && (
+          <div className="mb-4 inline-flex w-fit rounded-full bg-muted p-1" role="group" aria-label="Filtrar bonos">
+            {([["pendientes", `Sin consumir (${activeBonos.length})`], ["consumidos", `Consumidos (${consumedBonos.length})`]] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setBonoFilter(value)} aria-pressed={bonoFilter === value}
+                className={`rounded-full px-3 py-1 text-sm transition-colors ${bonoFilter === value ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {sortedBonos.length === 0 ? (
           <p className="text-muted-foreground">Todavía no se ha vendido ningún bono.</p>
+        ) : shownBonos.length === 0 ? (
+          <p className="text-muted-foreground">
+            {bonoFilter === "consumidos" ? "Todavía no hay bonos consumidos." : "No hay bonos con sesiones pendientes."}
+          </p>
         ) : (
-          <ShowMoreList className="flex flex-col gap-3">
-            {sortedBonos.map((b) => {
+          <ShowMoreList key={bonoFilter} className="flex flex-col gap-3">
+            {shownBonos.map((b) => {
               const used = bonoUsed(b, appointments);
               return (
                 <li key={b.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">

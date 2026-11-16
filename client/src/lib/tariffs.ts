@@ -83,7 +83,7 @@ export function paymentAlert(
   if (isPendingPayment(a)) return "Sesión pendiente de pago";
   if (a.bono_id && bonos.some((b) => b.id === a.bono_id && !b.paid_at)) return "Bono pendiente de pago";
   // Una cita ya pagada se ve normal aunque el paciente deba otra cosa: esas
-  // deudas se avisan al abrir la cita y en la pestaña «Pagos».
+  // deudas se avisan al abrir la cita y en la pestaña «Gestión financiera».
   return null;
 }
 
