@@ -16,6 +16,11 @@
 // Guarda el resultado en session_highlights como borrador: el paciente solo lo
 // ve cuando la psicóloga lo revisa y lo publica.
 //
+// Una sola generación por sesión: antes de llamar a la IA se reserva la fila
+// de session_highlight_generations (clave primaria = cita). Si ya existía, se
+// responde 409 «already_generated». Si la generación falla, se libera para
+// poder reintentar. Borrar los highlights no libera el uso.
+//
 // Nunca se escriben en los logs las notas ni la respuesta.
 // Variables: SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY.
 import { createMessage } from "../server/anthropic";
@@ -86,6 +91,22 @@ export default async function handler(req: Request): Promise<Response> {
     return { notes: n?.notes ?? "", next: n?.next_notes ?? "" };
   });
 
+  // Reserva el único uso de la sesión (atómico: la clave primaria evita que
+  // dos peticiones a la vez generen las dos).
+  const { error: usedError } = await admin.from("session_highlight_generations").insert({ appointment_id: appointmentId });
+  if (usedError) {
+    if (usedError.code === "23505") {
+      return fail(409, "already_generated", "Los highlights de esta sesión ya se generaron con IA (solo se puede una vez por sesión). Puedes editarlos a mano.");
+    }
+    console.error("Highlights: no se pudo reservar el uso", usedError.code);
+    return fail(500, "db", "No se pudo comprobar si ya se habían generado. Inténtalo de nuevo.");
+  }
+  // Si algo falla después, se libera el uso para poder reintentar.
+  const release = async (r: Response) => {
+    await admin.from("session_highlight_generations").delete().eq("appointment_id", appointmentId);
+    return r;
+  };
+
   const original = notesForPrompt(notes, nextNotes);
   const prompt = pseudonymize(buildHighlightsInput({ notes, next: nextNotes }, previous), patient);
   const result = await createMessage(apiKey, {
@@ -106,29 +127,29 @@ export default async function handler(req: Request): Promise<Response> {
     // Solo el estado: nunca el contenido de la petición.
     console.error("Highlights: fallo de la API de Anthropic", result.status, result.errorType ?? "");
     if (result.status === 401 || result.status === 403) {
-      return fail(500, "not_configured", "La clave de Anthropic no es válida. Revísala en Vercel.");
+      return release(fail(500, "not_configured", "La clave de Anthropic no es válida. Revísala en Vercel."));
     }
     if (result.status === 429) {
-      return fail(429, "rate_limited", "Demasiadas peticiones a la IA. Espera un minuto y vuelve a probar.");
+      return release(fail(429, "rate_limited", "Demasiadas peticiones a la IA. Espera un minuto y vuelve a probar."));
     }
-    return fail(502, "api_error", "La IA no ha respondido. Inténtalo de nuevo en un momento.");
+    return release(fail(502, "api_error", "La IA no ha respondido. Inténtalo de nuevo en un momento."));
   }
   const response = result.message;
 
   if (response.stop_reason === "refusal") {
     console.error("Highlights: el modelo declinó", response.stop_details?.category ?? "sin categoría");
-    return fail(422, "refusal", "La IA no ha podido resumir estas notas. Puedes escribir los puntos clave a mano.");
+    return release(fail(422, "refusal", "La IA no ha podido resumir estas notas. Puedes escribir los puntos clave a mano."));
   }
   const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   const parsed = response.stop_reason === "max_tokens" ? null : parseHighlights(text);
   if (!parsed) {
     console.error("Highlights: respuesta no válida", response.stop_reason);
-    return fail(502, "bad_output", "La respuesta de la IA no tenía el formato esperado. Inténtalo de nuevo.");
+    return release(fail(502, "bad_output", "La respuesta de la IA no tenía el formato esperado. Inténtalo de nuevo."));
   }
 
   const content = highlightsToText(parsed);
   if (!content) {
-    return fail(422, "empty", "La IA no ha encontrado en estas notas nada que cumpla los criterios para un highlight.");
+    return release(fail(422, "empty", "La IA no ha encontrado en estas notas nada que cumpla los criterios para un highlight."));
   }
   const row = {
     appointment_id: appointmentId,
@@ -141,7 +162,7 @@ export default async function handler(req: Request): Promise<Response> {
   const { error } = await admin.from("session_highlights").upsert(row);
   if (error) {
     console.error("Highlights: no se pudo guardar", error.code);
-    return fail(500, "db", "No se pudo guardar el resumen. Inténtalo de nuevo.");
+    return release(fail(500, "db", "No se pudo guardar el resumen. Inténtalo de nuevo."));
   }
   return json({ success: true, ...row });
 }
