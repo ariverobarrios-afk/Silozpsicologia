@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Loader2, RefreshCw, Send, Sparkles, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,8 @@ import { HighlightsView } from "./HighlightsView";
 
 // Highlights de la sesión generados con IA (Claude) con las instrucciones de
 // Silvia. Son un borrador: el paciente solo ve lo que la psicóloga publica
-// (y tal como estaba al publicarlo). Ver docs/highlights-ia.md.
+// (y tal como estaba al publicarlo). Solo se pueden generar una vez por sesión
+// (lo controla el servidor; borrarlos no lo reinicia). Ver docs/highlights-ia.md.
 
 interface HighlightRow {
   appointment_id: string;
@@ -43,6 +44,7 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
   const [busy, setBusy] = useState<"gen" | "save" | "del" | "pub" | null>(null);
   const [preview, setPreview] = useState(false);
   const [notesHash, setNotesHash] = useState("");
+  const [used, setUsed] = useState<boolean | undefined>(undefined); // ya se usó la generación de esta sesión
 
   useEffect(() => {
     if (!supabase) return;
@@ -51,6 +53,8 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
         setRow((data as HighlightRow | null) ?? null);
         setDraft((data as HighlightRow | null)?.content ?? "");
       });
+    supabase.from("session_highlight_generations").select("appointment_id").eq("appointment_id", appointmentId).maybeSingle()
+      .then(({ data, error }) => setUsed(error ? false : Boolean(data)));
     fetchConsentOverview(patientId).then(setOverview);
   }, [appointmentId, patientId]);
 
@@ -63,7 +67,7 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
   const editedHere = Boolean(row && draft !== row.content);
 
   const generate = async () => {
-    if (row?.edited_at && !window.confirm("Has retocado estos highlights a mano. Si los vuelves a generar, se perderán esos cambios (lo ya publicado no cambia hasta que vuelvas a publicar). ¿Seguir?")) return;
+    if (!window.confirm("Los highlights con IA solo se pueden generar una vez por sesión. Asegúrate de que las notas están completas. ¿Generar ahora?")) return;
     setBusy("gen");
     if (!(await ensureSaved())) {
       setBusy(null);
@@ -74,7 +78,8 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
       const resp = await fetch("/api/session-highlights", {
         method: "POST", headers: await authHeaders(), body: JSON.stringify({ appointmentId }),
       });
-      const body = (await resp.json().catch(() => ({}))) as Partial<HighlightRow> & { success?: boolean; message?: string };
+      const body = (await resp.json().catch(() => ({}))) as Partial<HighlightRow> & { success?: boolean; code?: string; message?: string };
+      if (body.code === "already_generated") setUsed(true);
       if (!resp.ok || !body.success || !body.content) {
         toast.error(body.message || "No se pudieron generar los highlights.");
         return;
@@ -82,6 +87,7 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
       const next = { ...(row ?? {}), ...body } as HighlightRow;
       setRow(next);
       setDraft(next.content);
+      setUsed(true);
     } catch {
       toast.error("No hay conexión. Inténtalo de nuevo.");
     } finally {
@@ -130,8 +136,8 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
 
   const remove = async () => {
     if (!window.confirm(row?.published_at
-      ? "¿Borrar los highlights de esta sesión? También dejarán de verse en el área del paciente."
-      : "¿Borrar los highlights de esta sesión?")) return;
+      ? "¿Borrar los highlights de esta sesión? También dejarán de verse en el área del paciente. No se podrán volver a generar con IA."
+      : "¿Borrar los highlights de esta sesión? No se podrán volver a generar con IA.")) return;
     setBusy("del");
     const { error } = await supabase!.from("session_highlights").delete().eq("appointment_id", appointmentId);
     setBusy(null);
@@ -141,7 +147,7 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
   };
 
   let body: React.ReactNode;
-  if (row === undefined || overview === undefined) {
+  if (row === undefined || overview === undefined || used === undefined) {
     body = <p className="text-sm text-muted-foreground">Cargando…</p>;
   } else if (overview?.ai_opt_out) {
     body = <p className="text-sm text-muted-foreground">Este paciente se ha opuesto al uso de IA con sus notas. Puedes cambiarlo en su ficha.</p>;
@@ -158,7 +164,7 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
           <>
             {stale && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Las notas han cambiado desde que se generaron estos highlights. Vuelve a generarlos para actualizarlos.
+                Las notas han cambiado desde que se generaron estos highlights. Revísalos y edítalos a mano si hace falta (solo se generan una vez por sesión).
               </p>
             )}
             <p className={row.published_at ? "text-xs font-medium text-primary" : "text-xs font-medium text-amber-800"}>
@@ -180,6 +186,10 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
               {" "}Formato: «### Título», una línea por párrafo y «&gt; frase para recordar».
             </p>
           </>
+        ) : used ? (
+          <p className="text-sm text-muted-foreground">
+            Los highlights de esta sesión ya se generaron con IA y se borraron. Solo se pueden generar una vez por sesión.
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             Propone de 2 a 5 highlights para el paciente a partir de tus notas (y de las 5 sesiones anteriores, para dar continuidad).
@@ -202,18 +212,19 @@ export function HighlightsPanel({ appointmentId, patientId, saved, ensureSaved }
           {row?.published_at && (
             <Button size="sm" variant="ghost" onClick={unpublish} disabled={busy !== null}>Retirar</Button>
           )}
-          <Button size="sm" variant={row ? "outline" : "default"} onClick={generate}
-            disabled={busy !== null || !hasNotes} className="rounded-full">
-            {busy === "gen" ? <Loader2 className="size-4 animate-spin" /> : row ? <RefreshCw className="size-4" /> : <Sparkles className="size-4" />}
-            {busy === "gen" ? "Generando…" : row ? "Volver a generar" : "Generar highlights"}
-          </Button>
+          {!used && !row && (
+            <Button size="sm" onClick={generate} disabled={busy !== null || !hasNotes} className="rounded-full">
+              {busy === "gen" ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              {busy === "gen" ? "Generando…" : "Generar highlights"}
+            </Button>
+          )}
           {row && (
             <Button size="sm" variant="ghost" onClick={remove} disabled={busy !== null}>
               <Trash2 className="size-4" /> Borrar
             </Button>
           )}
         </div>
-        {!hasNotes && !row && <p className="text-xs text-muted-foreground">Escribe primero las notas de la sesión.</p>}
+        {!hasNotes && !row && !used && <p className="text-xs text-muted-foreground">Escribe primero las notas de la sesión.</p>}
       </div>
     );
   }

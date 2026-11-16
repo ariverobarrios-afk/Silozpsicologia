@@ -22,7 +22,8 @@ Las instrucciones ya excluyen diagnósticos, hipótesis clínicas, etiquetas e i
    - solo administración;
    - el paciente **no se ha opuesto** (`profiles.ai_opt_out`);
    - el paciente **ha firmado el consentimiento**;
-   - hay notas guardadas.
+   - hay notas guardadas;
+   - **no se han generado ya** para esta sesión (ver más abajo).
 2. **Seudonimización** (`server/highlights.ts → pseudonymize`), aplicada a todas las notas enviadas: el nombre y los apellidos del paciente (sin distinguir mayúsculas ni tildes) y cualquier DNI/NIE, email o teléfono pasan a ser `[PACIENTE]`, `[DNI]`, `[EMAIL]` y `[TELÉFONO]`. Lo que identifica por contexto depende de cómo se escriban las notas.
 3. **Llamada a la API de Anthropic** (`server/anthropic.ts`). Se hace con `fetch` y no con el SDK oficial, porque el SDK importa `@opentelemetry/api`, que el runtime Edge de Vercel no admite: el despliegue fallaba. La petición es la misma que generaba el SDK, comprobada al capturarla:
    - modelo `claude-opus-5-5`, que no es un «Covered Model»;
@@ -35,6 +36,16 @@ Las instrucciones ya excluyen diagnósticos, hipótesis clínicas, etiquetas e i
    - Lo publicado se copia en `published_content`.
    - El paciente lo lee con `my_session_highlights()`, que solo devuelve lo publicado y lo suyo.
 5. **Logs:** nunca contienen las notas ni la respuesta.
+
+## Una sola generación por sesión (`20261116_highlights_un_uso.sql`)
+
+Los highlights con IA se pueden generar **una sola vez por sesión (cita)**. No hay botón «Volver a generar»: después, la psicóloga los edita a mano.
+
+- Lo controla el servidor, no solo el botón. Antes de llamar a la IA, `api/session-highlights.ts` inserta la cita en `session_highlight_generations`, cuya clave primaria es la cita. Si ya estaba, responde `409 already_generated`. Dos peticiones a la vez no pueden pasar las dos.
+- Si la generación falla (error de la API, el modelo declina, respuesta no válida o vacía, no se pudo guardar), se borra esa fila para poder reintentar. Solo cuenta una generación que se ha guardado.
+- **Borrar** los highlights no libera el uso: la tabla es distinta de `session_highlights`.
+- La migración marca como usadas las sesiones que ya tenían highlights.
+- Para permitir otra generación en una sesión concreta (caso excepcional), hay que borrar su fila de `session_highlight_generations` en Supabase → SQL Editor.
 
 ## Nombre para el paciente: «Claves de mi proceso»
 
