@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { CalendarDays, Download, FileText, ListChecks, Sparkles } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, FileText, ListChecks, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,9 @@ import { openInvoice } from "@/lib/invoices";
 import { BONO, bonoRemaining, euros } from "@/lib/tariffs";
 import { fetchConsentOverview, type ConsentOverview } from "@/lib/consent";
 import { ConsentBanner, ConsentCard, InfoUpdateBanner } from "./ConsentDocuments";
+import { fetchMyTasks, type PatientTaskSession } from "@/lib/sessionTasks";
 import { HighlightsView } from "./HighlightsView";
+import { PatientTasks, pendingTasks } from "./PatientTasks";
 import { CalendarSync } from "./CalendarSync";
 import { formatDayTitle } from "./format";
 import { AppointmentItem } from "./AppointmentItem";
@@ -29,19 +31,24 @@ function MisCitas() {
   const [consent, setConsent] = useState<ConsentOverview | null>(null);
   // Highlights que la psicóloga ha publicado (solo el texto publicado).
   const [highlights, setHighlights] = useState<Array<{ appointment_id: string; starts_at: string; content: string }>>([]);
+  // Documentos y tareas que la psicóloga le ha dejado en cada sesión.
+  const [tasks, setTasks] = useState<PatientTaskSession[] | null>(null);
+  const loadTasks = useCallback(() => fetchMyTasks().then(setTasks), []);
   // Pestañas en la URL para poder enlazarlas: #documentos (enlace del email de
-  // la firma) y #claves (dentro de «Citas»: «Claves de mi proceso», los
-  // highlights publicados; también vale el antiguo #highlights).
+  // la firma) y, dentro de «Citas», #claves («Claves de mi proceso», los
+  // highlights publicados; también vale el antiguo #highlights) y #tareas.
+  const CITAS_HASH: Record<string, string> = { highlights: "#claves", tareas: "#tareas" };
   const [tab, setTab] = useState(() => (window.location.hash === "#documentos" ? "documentos" : "citas"));
-  const [citasTab, setCitasTab] = useState(() => (["#claves", "#highlights"].includes(window.location.hash) ? "highlights" : "gestion"));
+  const [citasTab, setCitasTab] = useState(() =>
+    ["#claves", "#highlights"].includes(window.location.hash) ? "highlights" : window.location.hash === "#tareas" ? "tareas" : "gestion");
   const setHash = (hash: string) => window.history.replaceState(null, "", hash || window.location.pathname);
   const changeTab = (value: string) => {
     setTab(value);
-    setHash(value === "documentos" ? "#documentos" : citasTab === "highlights" ? "#claves" : "");
+    setHash(value === "documentos" ? "#documentos" : CITAS_HASH[citasTab] ?? "");
   };
   const changeCitasTab = (value: string) => {
     setCitasTab(value);
-    setHash(value === "highlights" ? "#claves" : "");
+    setHash(CITAS_HASH[value] ?? "");
   };
 
   const loadAppointments = useCallback(() => {
@@ -78,9 +85,11 @@ function MisCitas() {
     fetchConsentOverview(profile.id).then(setConsent);
     supabase.rpc("my_session_highlights").then(({ data }) =>
       setHighlights((data as Array<{ appointment_id: string; starts_at: string; content: string }> | null) ?? []));
-  }, [profile, loadAppointments]);
+    void loadTasks();
+  }, [profile, loadAppointments, loadTasks]);
 
   const consentPending = Boolean(consent && consent.status !== "firmado");
+  const tasksPending = pendingTasks(tasks ?? []);
 
   const now = Date.now();
   const upcoming = (appointments ?? []).filter(
@@ -108,6 +117,13 @@ function MisCitas() {
           <TabsList className="mb-6">
             <TabsTrigger value="gestion"><ListChecks className="size-4" /> Gestión de citas</TabsTrigger>
             <TabsTrigger value="highlights"><Sparkles className="size-4" /> Claves de mi proceso</TabsTrigger>
+            <TabsTrigger value="tareas">
+              <ClipboardList className="size-4" /> Tareas
+              {tasksPending > 0 && (
+                <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
+                  aria-label={`${tasksPending} sin responder`}>{tasksPending}</span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="gestion">
@@ -205,6 +221,10 @@ function MisCitas() {
                 </>
               )}
             </section>
+          </TabsContent>
+
+          <TabsContent value="tareas">
+            <PatientTasks sessions={tasks} onChanged={loadTasks} />
           </TabsContent>
           </Tabs>
         </TabsContent>

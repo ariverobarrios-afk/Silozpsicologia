@@ -35,7 +35,7 @@ for f in ("20261106_reserva_citas_paciente.sql", "20261108_consentimiento_firma.
           "20261109_consentimiento_sin_domicilio.sql", "20261109_ia_highlights.sql",
           "20261109_claves_proceso.sql",
           "20261109_calendario.sql", "20261110_tarifa_especial.sql",
-          "20261116_highlights_un_uso.sql"):
+          "20261116_highlights_un_uso.sql", "20261119_tareas_sesion.sql"):
     if open("supabase/migrations/" + f).read().strip() not in schema:
         sys.exit("schema.sql no incluye tal cual la migración " + f)
 PY
@@ -53,6 +53,9 @@ fresh_db
 
 echo "· calendario: enlace privado por usuario"
 "${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/calendario.test.sql 2>&1 | grep -v NOTICE
+
+echo "· tareas de la sesión: permisos, respuesta y lo que ve el paciente"
+"${PSQL[@]}" "$DB_URL" -o /dev/null -f supabase/tests/tareas.test.sql 2>&1 | grep -v NOTICE
 
 echo "· 10 pacientes reservan el mismo hueco a la vez"
 fresh_db

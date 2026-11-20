@@ -9,13 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase, type Appointment, type Profile, type SessionNotes } from "@/lib/supabase";
 import { AppointmentItem } from "./AppointmentItem";
 import { HighlightsPanel } from "./HighlightsPanel";
+import { TasksPanel } from "./TasksPanel";
 import { AreaLayout, RequireRole } from "./AreaLayout";
 import { formatDayTitle, formatTime } from "./format";
 import { nextSession, previousSession } from "./sessionNotes";
 
 // Página de una sesión (/panel/sesion/<id de la cita>): aquí se gestiona todo
-// lo de la sesión. De momento, sus notas y las notas para la próxima, que la
-// siguiente cita del paciente hereda la reserve quien la reserve.
+// lo de la sesión: sus notas y las notas para la próxima (que la siguiente
+// cita del paciente hereda la reserve quien la reserve), los highlights con
+// IA y las tareas para el paciente.
 
 const MAX = 5000;
 const AUTOSAVE_MS = 1500; // se guarda al dejar de escribir este tiempo
@@ -328,6 +330,8 @@ function SesionContent({ id }: { id: string }) {
         <HighlightsPanel appointmentId={appointment.id} patientId={appointment.patient_id}
           saved={saved.current}
           ensureSaved={async () => { await saveNow(); return !isDirty(); }} />
+
+        <TasksPanel appointmentId={appointment.id} />
 
         {(prev || next) && (
           <nav className="flex flex-wrap justify-between gap-2 border-t border-border pt-4">
