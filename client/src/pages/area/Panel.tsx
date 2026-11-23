@@ -65,6 +65,8 @@ function PanelTerapeuta() {
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteExisting, setInviteExisting] = useState<Profile | null>(null);
+  // Pacientes que ya eligieron contraseña (null = no se sabe): no necesitan reenvío.
+  const [activatedIds, setActivatedIds] = useState<Set<string> | null>(null);
   const [bonos, setBonos] = useState<Bono[] | null>(null);
   // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
   const [psicolinkDays, setPsicolinkDays] = useState<Map<string, boolean>>(new Map());
@@ -111,6 +113,9 @@ function PanelTerapeuta() {
         .eq("status", "abierto").gt("ends_at", new Date().toISOString()).order("starts_at"),
     ]);
     setOpenSlots((sl as AgendaSlot[] | null) ?? []);
+    supabase.rpc("activated_patient_ids").then(({ data, error }) => {
+      if (!error) setActivatedIds(new Set((data as string[] | null) ?? []));
+    });
     setNotes(new Map(((nt as SessionNotes[] | null) ?? []).map((n) => [n.appointment_id, n])));
     setEvents((ev as AgendaEvent[] | null) ?? []);
     setInvoices((inv as Invoice[] | null) ?? []);
@@ -367,6 +372,7 @@ function PanelTerapeuta() {
               onEditAppointment={(a) => setEditing(a)}
               onSellBono={() => setSellBonoFor({ patientId: profilePatient.id })}
               onEditData={() => setEditingPatient(profilePatient)}
+              activated={activatedIds ? activatedIds.has(profilePatient.id) : null}
               onInvite={() => setInviteExisting(profilePatient)}
               onToggleActive={() => toggleActive(profilePatient)}
               onSetProcess={(v) => setProcess(profilePatient, v)}

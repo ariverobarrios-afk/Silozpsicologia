@@ -75,6 +75,7 @@ export function PatientProfile({
   bonos,
   invoices,
   invoiceSettings,
+  activated,
   alertFor,
   onBack,
   onNewAppointment,
@@ -91,6 +92,7 @@ export function PatientProfile({
   bonos: Bono[];
   invoices: Invoice[];
   invoiceSettings: InvoiceSettings | null;
+  activated: boolean | null; // true = ya eligió contraseña (no necesita reenvío); null = aún no se sabe
   alertFor: (a: Appointment) => string | null;
   onBack: () => void;
   onNewAppointment: () => void;
@@ -222,6 +224,9 @@ export function PatientProfile({
               {!p.invited_at && (
                 <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">Sin invitación enviada</Badge>
               )}
+              {p.invited_at && activated === false && (
+                <Badge variant="outline" className="border-border bg-secondary text-muted-foreground">Invitación sin aceptar</Badge>
+              )}
               {activeBono && (
                 <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                   Bono: quedan {bonoRemaining(activeBono, appointments)} de {activeBono.sessions_total}
@@ -245,10 +250,12 @@ export function PatientProfile({
               <IdCard className="size-4" />
               Datos fiscales
             </Button>
-            <Button variant="outline" size="sm" onClick={onInvite}>
-              <Mail className="size-4" />
-              {p.invited_at ? "Reenviar invitación" : "Enviar invitación"}
-            </Button>
+            {!activated && (
+              <Button variant="outline" size="sm" onClick={onInvite}>
+                <Mail className="size-4" />
+                {p.invited_at ? "Reenviar invitación" : "Enviar invitación"}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onToggleActive}>
               {p.active ? "Desactivar" : "Activar"}
             </Button>
