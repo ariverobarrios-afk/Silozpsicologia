@@ -601,7 +601,7 @@ function PanelTerapeuta() {
   );
 }
 
-type InviteResponse = { success?: boolean; invited?: boolean; message?: string };
+type InviteResponse = { success?: boolean; invited?: boolean; message?: string; email?: string };
 
 async function callInviteApi(token: string | undefined, payload: Record<string, unknown>): Promise<InviteResponse | null> {
   try {
@@ -707,17 +707,22 @@ function SendInviteDialog({
   const { session } = useAuth();
   const [email, setEmail] = useState(patient.email);
   const [busy, setBusy] = useState(false);
+  // Ya se le envió: se reenvía a la dirección de su cuenta.
+  const resend = Boolean(patient.invited_at);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const body = await callInviteApi(session?.access_token, { profileId: patient.id, email });
+    const body = await callInviteApi(
+      session?.access_token,
+      resend ? { profileId: patient.id, resend: true } : { profileId: patient.id, email }
+    );
     setBusy(false);
     if (!body?.success) {
       toast.error(body?.message || "No se pudo enviar la invitación.");
       return;
     }
-    toast.success(`Invitación enviada a ${email.trim()}.`);
+    toast.success(`Invitación ${resend ? "reenviada" : "enviada"} a ${body.email || email.trim()}.`);
     onInvited();
   };
 
@@ -725,20 +730,34 @@ function SendInviteDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle>Enviar invitación</DialogTitle>
+          <DialogTitle>{resend ? "Reenviar invitación" : "Enviar invitación"}</DialogTitle>
           <DialogDescription>
-            {patient.full_name || "El paciente"} recibirá un email para crear su contraseña y verá sus citas y
-            bonos.
+            {resend
+              ? `${patient.full_name || "El paciente"} recibirá un email nuevo, con un enlace recién generado, para elegir su contraseña y entrar en su área. Los enlaces anteriores dejan de servir.`
+              : `${patient.full_name || "El paciente"} recibirá un email para crear su contraseña y verá sus citas y bonos.`}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="inv-existing-email">Email</Label>
-            <Input id="inv-existing-email" type="email" required value={email}
-              onChange={(e) => setEmail(e.target.value)} />
-          </div>
+          {resend ? (
+            <p className="rounded-xl border border-border bg-secondary px-4 py-3 text-sm">
+              Se enviará a <span className="font-medium text-foreground">{patient.email}</span>
+              {patient.invited_at && (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Último envío: {format(new Date(patient.invited_at), "d/M/yyyy 'a las' HH:mm")}
+                </span>
+              )}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="inv-existing-email">Email</Label>
+              <Input id="inv-existing-email" type="email" required value={email}
+                onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          )}
           <DialogFooter>
-            <Button type="submit" disabled={busy} className="rounded-full">Enviar invitación</Button>
+            <Button type="submit" disabled={busy} className="rounded-full">
+              {resend ? "Reenviar invitación" : "Enviar invitación"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

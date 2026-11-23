@@ -245,12 +245,10 @@ export function PatientProfile({
               <IdCard className="size-4" />
               Datos fiscales
             </Button>
-            {!p.invited_at && (
-              <Button variant="outline" size="sm" onClick={onInvite}>
-                <Mail className="size-4" />
-                Enviar invitación
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={onInvite}>
+              <Mail className="size-4" />
+              {p.invited_at ? "Reenviar invitación" : "Enviar invitación"}
+            </Button>
             <Button variant="ghost" size="sm" onClick={onToggleActive}>
               {p.active ? "Desactivar" : "Activar"}
             </Button>

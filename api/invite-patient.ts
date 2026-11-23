@@ -9,6 +9,10 @@
 //   · Invitar a una ficha ya existente (profileId): le pone el email y le
 //     envía la invitación; el trigger enlaza la cuenta nueva con la ficha
 //     (ver supabase/schema.sql), así conserva citas y bonos.
+//   · Reenviar la invitación (profileId + resend = true): el enlace del email
+//     caduca, así que Silvia puede mandarlo otra vez. Si el paciente aún no
+//     abrió el primero se repite la invitación; si ya lo abrió (su cuenta
+//     está confirmada) se le envía el email para elegir contraseña.
 //
 // Necesita la clave service_role de Supabase, que NUNCA debe llegar al
 // navegador; por eso esto vive aquí y no en el frontend. Antes de hacer nada
@@ -30,6 +34,7 @@ interface InvitePayload {
   phone?: string;
   invite?: boolean;
   profileId?: string;
+  resend?: boolean;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -109,6 +114,53 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ success: false, message: "El email no es válido." }, 400);
   }
 
+  const origin = new URL(req.url).origin;
+  const redirectTo = `${origin}/acceso/nueva-contrasena`;
+
+  // 4r) Reenviar la invitación a un paciente que ya la recibió.
+  if (data.resend) {
+    if (!profileId) {
+      return json({ success: false, message: "Paciente no encontrado." }, 404);
+    }
+    const { data: target, error: targetError } = await admin
+      .from("profiles")
+      .select("id, role, invited_at")
+      .eq("id", profileId)
+      .single();
+    if (targetError || !target || target.role !== "patient") {
+      return json({ success: false, message: "Paciente no encontrado." }, 404);
+    }
+    const { data: account } = await admin.auth.admin.getUserById(profileId);
+    const accountEmail = account?.user?.email;
+    if (!target.invited_at || !accountEmail) {
+      return json(
+        { success: false, message: "Este paciente todavía no tiene la invitación enviada." },
+        409
+      );
+    }
+    // Con la cuenta ya confirmada Supabase no admite otra invitación: se le
+    // manda el email de «elegir contraseña», que lleva a la misma página.
+    const confirmed = Boolean(account.user.email_confirmed_at);
+    const { error: resendError } = confirmed
+      ? await admin.auth.resetPasswordForEmail(accountEmail, { redirectTo })
+      : await admin.auth.admin.inviteUserByEmail(accountEmail, { redirectTo });
+    if (resendError) {
+      console.error("Reenvío fallido:", resendError.message);
+      const muyPronto = resendError.status === 429 || /security purposes|rate limit/i.test(resendError.message);
+      return json(
+        {
+          success: false,
+          message: muyPronto
+            ? "Acabas de enviarle un email. Espera un minuto y vuelve a intentarlo."
+            : "No se pudo reenviar la invitación.",
+        },
+        muyPronto ? 429 : 502
+      );
+    }
+    await admin.from("profiles").update({ invited_at: new Date().toISOString() }).eq("id", profileId);
+    return json({ success: true, invited: true, email: accountEmail, mode: confirmed ? "recovery" : "invite" });
+  }
+
   // 4a) Alta sin invitación: solo la ficha.
   if (!profileId && (!email || data.invite === false)) {
     if (!fullName) {
@@ -159,12 +211,11 @@ export default async function handler(req: Request): Promise<Response> {
   //    en esta misma web (sirve igual en producción y en versiones de prueba,
   //    siempre que la URL esté permitida en Supabase → Authentication → URL
   //    Configuration → Redirect URLs).
-  const origin = new URL(req.url).origin;
   const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(
     email,
     {
       data: metadata,
-      redirectTo: `${origin}/acceso/nueva-contrasena`,
+      redirectTo,
     }
   );
 

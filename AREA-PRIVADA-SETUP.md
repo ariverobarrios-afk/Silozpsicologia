@@ -105,6 +105,11 @@ variable, la clave secreta, que usa el servidor para enviar invitaciones.
 
 A partir de ahí, los pacientes los invita ella desde **Panel → Pacientes → Invitar paciente**.
 
+El enlace del email caduca. Si un paciente no llegó a entrar, Silvia puede
+mandarle uno nuevo desde su ficha con **Reenviar invitación**: si aún no abrió
+el primero se repite la invitación y, si ya lo abrió, recibe el email de
+«Crear una nueva contraseña» (plantilla *Reset password*).
+
 ---
 
 ## 7. Reserva de citas por el paciente
