@@ -108,8 +108,8 @@ A partir de ahí, los pacientes los invita ella desde **Panel → Pacientes → 
 El enlace del email caduca. Si un paciente no llegó a entrar, Silvia puede
 mandarle uno nuevo desde su ficha con **Reenviar invitación**: si aún no abrió
 el primero se repite la invitación y, si ya lo abrió, recibe el email de
-«Crear una nueva contraseña» (plantilla *Reset password*). El botón desaparece
-cuando el paciente ya ha elegido su contraseña.
+«Crear una nueva contraseña» (plantilla *Reset password*). El botón está
+siempre disponible, también para quien ya entró (le sirve si olvidó la clave).
 
 Los recordatorios automáticos de cita y de pago están en `docs/recordatorios.md`.
 

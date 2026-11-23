@@ -2658,8 +2658,8 @@ grant execute on function public.my_session_tasks() to authenticated;
 -- borrarlo (con service_role).
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Pacientes que ya han activado su cuenta (han elegido contraseña): a esos no
--- hace falta reenviarles la invitación.
+-- Pacientes que ya han activado su cuenta (han elegido contraseña): la ficha
+-- marca «Invitación sin aceptar» a los demás.
 create or replace function public.activated_patient_ids()
 returns setof uuid
 language sql stable security definer set search_path = public

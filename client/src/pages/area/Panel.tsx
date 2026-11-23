@@ -65,7 +65,7 @@ function PanelTerapeuta() {
   const [view, setView] = useState<"calendario" | "lista">("calendario");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteExisting, setInviteExisting] = useState<Profile | null>(null);
-  // Pacientes que ya eligieron contraseña (null = no se sabe): no necesitan reenvío.
+  // Pacientes que ya eligieron contraseña (null = no se sabe).
   const [activatedIds, setActivatedIds] = useState<Set<string> | null>(null);
   const [bonos, setBonos] = useState<Bono[] | null>(null);
   // Cambios puntuales de días de Psicolink (por defecto: miércoles y viernes).
