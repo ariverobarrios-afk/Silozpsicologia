@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  appointmentDue,
   emailRecordatorioCita,
   emailRecordatorioPago,
   groupDebts,
@@ -34,6 +35,24 @@ test("recordatorio de cita: sin enlace al área si no tiene acceso", () => {
     "https://silozpsicologia.com"
   );
   assert.doesNotMatch(e.texto, /mi-area/);
+});
+
+test("recordatorio de cita: avisa si esa cita (o su bono) está pendiente de pago", () => {
+  const base = { id: "a1", patient_id: "p1", starts_at: "2026-11-25T09:00:00Z", duration_minutes: 60, modality: "online" };
+  const suelta = { ...base, session_type: "individual", price_cents: 5500, paid_at: null, bono_id: null };
+  assert.deepEqual(appointmentDue(suelta), { kind: "cita", cents: 5500 });
+  assert.equal(appointmentDue({ ...suelta, paid_at: "2026-11-20T09:00:00Z" }), null);
+  const conBono = { ...base, session_type: "bono", price_cents: 0, paid_at: null, bono_id: "b1" };
+  assert.equal(appointmentDue(conBono), null); // bono ya pagado
+  assert.deepEqual(appointmentDue(conBono, new Map([["b1", 25000]])), { kind: "bono", cents: 25000 });
+
+  const e = emailRecordatorioCita(suelta, patient, "https://silozpsicologia.com", appointmentDue(suelta));
+  assert.match(e.texto, /Pago: Pendiente: 55 €/);
+  assert.match(e.texto, /esta sesión está pendiente de pago \(55 €\)/);
+  const pagada = emailRecordatorioCita(suelta, patient, "https://silozpsicologia.com", null);
+  assert.doesNotMatch(pagada.texto, /pendiente/i);
+  const bono = emailRecordatorioCita(conBono, patient, "https://silozpsicologia.com", { kind: "bono", cents: 25000 });
+  assert.match(bono.texto, /el bono de esta sesión está pendiente de pago \(250 €\)/);
 });
 
 test("se avisa entre 24 h y 12 h antes", () => {

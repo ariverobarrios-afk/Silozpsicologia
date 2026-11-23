@@ -46,6 +46,28 @@ export interface ReminderAppointment {
   starts_at: string;
   duration_minutes: number;
   modality: string;
+  session_type?: string;
+  price_cents?: number;
+  paid_at?: string | null;
+  bono_id?: string | null;
+}
+
+// Lo que queda por pagar de la propia cita: su importe si es una sesión
+// suelta sin cobrar o, si va con bono, el del bono cuando está sin pagar.
+export interface ReminderDue {
+  kind: "cita" | "bono";
+  cents: number;
+}
+
+export function appointmentDue(
+  a: ReminderAppointment,
+  unpaidBonos: Map<string, number> = new Map()
+): ReminderDue | null {
+  if (a.session_type !== "bono" && (a.price_cents ?? 0) > 0 && !a.paid_at) {
+    return { kind: "cita", cents: a.price_cents! };
+  }
+  const bono = a.bono_id ? unpaidBonos.get(a.bono_id) : undefined;
+  return bono ? { kind: "bono", cents: bono } : null;
 }
 
 export interface ReminderPatient {
@@ -55,7 +77,12 @@ export interface ReminderPatient {
   invited_at?: string | null;
 }
 
-export function emailRecordatorioCita(a: ReminderAppointment, p: ReminderPatient, baseUrl: string): EmailInput {
+export function emailRecordatorioCita(
+  a: ReminderAppointment,
+  p: ReminderPatient,
+  baseUrl: string,
+  due: ReminderDue | null = null
+): EmailInput {
   const fin = new Date(new Date(a.starts_at).getTime() + a.duration_minutes * 60_000);
   const { html, texto } = emailSencillo({
     titulo: "Recordatorio de tu próxima sesión",
@@ -63,9 +90,17 @@ export function emailRecordatorioCita(a: ReminderAppointment, p: ReminderPatient
       ["Día", capitalize(madridLongDay(a.starts_at, true))],
       ["Hora", `${madridTime(a.starts_at)} – ${madridTime(fin)} (hora de Madrid)`],
       ...(MODALITY[a.modality] ? [["Modalidad", MODALITY[a.modality]] as [string, string]] : []),
+      ...(due ? [["Pago", `Pendiente: ${euros(due.cents)}`] as [string, string]] : []),
     ],
     parrafos: [
       `${saludo(p.full_name)} Te recordamos que tienes una sesión en Siloz Psicología el ${madridWeekday(a.starts_at)} ${madridDate(a.starts_at)} a las ${madridTime(a.starts_at)}.`,
+      ...(due
+        ? [
+            due.kind === "cita"
+              ? `Te recordamos también que esta sesión está pendiente de pago (${euros(due.cents)}). Si ya la has abonado, no tengas en cuenta este aviso.`
+              : `Te recordamos también que el bono de esta sesión está pendiente de pago (${euros(due.cents)}). Si ya lo has abonado, no tengas en cuenta este aviso.`,
+          ]
+        : []),
       "Este es un mensaje automático: no respondas a este correo.",
     ],
     // El área privada solo sirve a quien tiene acceso.
@@ -149,7 +184,7 @@ async function recordatoriosDeCita(admin: SupabaseClient, now: Date, baseUrl: st
   const result = { sent: 0, failed: 0 };
   const { data: appts, error } = await admin
     .from("appointments")
-    .select("id, patient_id, starts_at, duration_minutes, modality")
+    .select("id, patient_id, starts_at, duration_minutes, modality, session_type, price_cents, paid_at, bono_id")
     .eq("status", "programada")
     .gt("starts_at", new Date(now.getTime() + REMINDER_MIN_HOURS * HOUR).toISOString())
     .lte("starts_at", new Date(now.getTime() + REMINDER_HOURS * HOUR).toISOString())
@@ -167,6 +202,16 @@ async function recordatoriosDeCita(admin: SupabaseClient, now: Date, baseUrl: st
   const already = new Set((sent ?? []).map((r) => `${r.appointment_id}|${new Date(r.starts_at).getTime()}`));
   const byId = new Map((patients as ReminderPatient[]).map((p) => [p.id, p]));
 
+  // Bonos sin pagar de estas citas, para avisarlo en el recordatorio.
+  const bonoIds = Array.from(new Set(due.map((a) => a.bono_id).filter((id): id is string => Boolean(id))));
+  const unpaidBonos = new Map<string, number>();
+  if (bonoIds.length > 0) {
+    const { data: bonos, error: bonosError } = await admin
+      .from("bonos").select("id, price_cents").in("id", bonoIds).is("paid_at", null).gt("price_cents", 0);
+    if (bonosError) throw new Error(`citas: ${bonosError.message}`);
+    for (const b of bonos ?? []) unpaidBonos.set(b.id, b.price_cents);
+  }
+
   for (const a of due) {
     const patient = byId.get(a.patient_id);
     if (!patient?.email || already.has(`${a.id}|${new Date(a.starts_at).getTime()}`)) continue;
@@ -175,7 +220,7 @@ async function recordatoriosDeCita(admin: SupabaseClient, now: Date, baseUrl: st
     const { error: claimError } = await admin.from("appointment_reminders").insert(claim);
     if (claimError) continue; // otra ejecución se ha adelantado
     if (result.sent + result.failed > 0) await pause();
-    const r = await enviarEmail(emailRecordatorioCita(a, patient, baseUrl));
+    const r = await enviarEmail(emailRecordatorioCita(a, patient, baseUrl, appointmentDue(a, unpaidBonos)));
     if (r.ok) result.sent++;
     else {
       result.failed++;

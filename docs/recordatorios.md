@@ -10,6 +10,9 @@ datos personales de la psicóloga: ni nombre, ni teléfono, ni email de respuest
   hasta 15 minutos, que es cada cuánto se revisa).
 - Indica el día, la hora (de Madrid) y la modalidad. Si el paciente tiene
   acceso al área privada, añade el enlace «Ver mis citas».
+- Si esa cita está **pendiente de pago** (o va con un bono que aún no se ha
+  pagado), el mismo email lo recuerda con el importe. Si ya está cobrada, no
+  dice nada del pago.
 - Si la cita se cambia de hora, se vuelve a avisar de la nueva; si se cancela,
   no se envía nada.
 - Las citas que se crean con menos de 12 horas de margen no reciben
