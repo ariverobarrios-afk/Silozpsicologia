@@ -19,7 +19,7 @@ import { nextSession, previousSession } from "./sessionNotes";
 // cita del paciente hereda la reserve quien la reserve), los highlights con
 // IA y las tareas para el paciente.
 
-const MAX = 5000;
+const MAX = 50000; // por campo; mismo límite que la base de datos (appointment_notes)
 const AUTOSAVE_MS = 1500; // se guarda al dejar de escribir este tiempo
 const RETRY_MS = 5000;
 

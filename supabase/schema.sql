@@ -839,9 +839,9 @@ create table if not exists public.appointment_notes (
 alter table public.appointment_notes add column if not exists next_notes text not null default '';
 alter table public.appointment_notes alter column notes set default '';
 alter table public.appointment_notes drop constraint if exists appointment_notes_notes_check;
-alter table public.appointment_notes add constraint appointment_notes_notes_check check (length(notes) <= 5000);
+alter table public.appointment_notes add constraint appointment_notes_notes_check check (length(notes) <= 50000);
 alter table public.appointment_notes drop constraint if exists appointment_notes_next_notes_check;
-alter table public.appointment_notes add constraint appointment_notes_next_notes_check check (length(next_notes) <= 5000);
+alter table public.appointment_notes add constraint appointment_notes_next_notes_check check (length(next_notes) <= 50000);
 -- Sin ninguna de las dos, la fila se borra en vez de quedar vacía.
 alter table public.appointment_notes drop constraint if exists appointment_notes_not_empty;
 alter table public.appointment_notes add constraint appointment_notes_not_empty
