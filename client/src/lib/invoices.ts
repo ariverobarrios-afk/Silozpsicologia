@@ -53,31 +53,21 @@ function lines(text: string | null | undefined): string {
   return esc(text).split("\n").filter(Boolean).map((l) => `<div>${l}</div>`).join("");
 }
 
-// Símbolo de Siloz (el mismo que usa la web). La factura se abre en una
-// ventana en blanco, así que la ruta tiene que ser absoluta.
+// Símbolo de Siloz (el mismo que usa la web).
 export const INVOICE_LOGO_PATH = "/images/simbolo-reloj-arena.png";
 
-// HTML de la factura con el mismo formato que las que ya emitía Silvia.
-export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
-  const date = format(new Date(`${inv.issue_date}T12:00:00`), "dd/MM/yyyy");
-  const operationDate = inv.operation_date ? format(new Date(`${inv.operation_date}T12:00:00`), "dd/MM/yyyy") : null;
-  const vat = Math.round((inv.unit_price_cents * inv.quantity * inv.vat_percent) / 100);
-  const subtotal = inv.unit_price_cents * inv.quantity;
-  const i = inv.issuer;
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Factura_${esc(inv.code)}</title>
-<style>
-  @page { size: A4; margin: 18mm 16mm; }
+const INVOICE_CSS = `
   * { box-sizing: border-box; }
-  body { font-family: Helvetica, Arial, sans-serif; color: #111; font-size: 11pt; margin: 0; }
-  .page { max-width: 180mm; margin: 0 auto; padding: 8mm 0; }
+  .sheet { font-family: Helvetica, Arial, sans-serif; color: #111; font-size: 11pt; line-height: normal; text-align: left; }
+  .page { max-width: 180mm; margin: 0 auto; padding: 8mm 16px; }
   .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
   .logo { height: 22mm; width: auto; margin-left: 12mm; }
   .title { text-align: right; }
-  h1 { font-size: 20pt; margin: 0 0 14px; }
+  h1 { font-size: 20pt; font-weight: bold; margin: 0 0 14px; }
   .meta div { margin: 2px 0; }
   .parties { display: flex; gap: 24px; margin: 30px 0 40px; }
   .parties > div { flex: 1; }
-  .parties h2 { font-size: 10pt; margin: 0 0 6px; text-transform: uppercase; }
+  .parties h2 { font-size: 10pt; font-weight: bold; margin: 0 0 6px; text-transform: uppercase; }
   .parties div div { margin: 2px 0; }
   table { width: 100%; border-collapse: collapse; margin-top: 10px; }
   th { background: #f0f0f0; text-align: left; font-size: 9pt; text-transform: uppercase; padding: 8px; border: 1px solid #ccc; }
@@ -89,12 +79,31 @@ export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
   .pay { margin-top: 30px; font-size: 10pt; }
   .pay div { margin: 3px 0; }
   .note { margin-top: 18px; font-size: 10pt; }
-  .toolbar { position: fixed; bottom: 16px; right: 16px; }
-  .toolbar button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  .toolbar { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: #f6f6f6; border-bottom: 1px solid #ddd;
+    font-family: Helvetica, Arial, sans-serif; }
+  .toolbar button { font: inherit; font-size: 15px; color: #111; padding: 9px 16px; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
   @media print { .toolbar { display: none; } .page { padding: 0; } }
-</style></head><body>
-<div class="toolbar"><button onclick="window.print()">Descargar / imprimir PDF</button></div>
-<div class="page">
+`;
+
+// Reglas para la página que contiene el visor: al imprimir solo sale la factura.
+const INVOICE_PRINT_CSS = `
+  @page { size: A4; margin: 18mm 16mm; }
+  @media print {
+    html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+    body > *:not(#invoice-viewer) { display: none !important; }
+    #invoice-viewer { position: static !important; overflow: visible !important; }
+  }
+`;
+
+// Cuerpo de la factura con el mismo formato que las que ya emitía Silvia.
+export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
+  const date = format(new Date(`${inv.issue_date}T12:00:00`), "dd/MM/yyyy");
+  const operationDate = inv.operation_date ? format(new Date(`${inv.operation_date}T12:00:00`), "dd/MM/yyyy") : null;
+  const vat = Math.round((inv.unit_price_cents * inv.quantity * inv.vat_percent) / 100);
+  const subtotal = inv.unit_price_cents * inv.quantity;
+  const i = inv.issuer;
+  return `<div class="page">
   <div class="head">
     ${logoUrl ? `<img class="logo" src="${esc(logoUrl)}" alt="Siloz Psicología">` : "<span></span>"}
     <div class="title">
@@ -145,17 +154,68 @@ export function invoiceHtml(inv: Invoice, logoUrl?: string): string {
   </div>
   <div class="note">${esc(i.exemption_note)}</div>
 </div>
-</body></html>`;
+`;
 }
 
-// Abre la factura en una pestaña nueva lista para guardar como PDF.
+let closeViewer: (() => void) | null = null;
+
+// Muestra la factura a pantalla completa dentro de la propia web, con un botón
+// para volver y otro para guardarla como PDF. No se abre en otra ventana: en
+// el iPad (web instalada como app) esa ventana no tiene forma de volver atrás.
 export function openInvoice(inv: Invoice): void {
-  const w = window.open("", "_blank");
-  if (!w) {
-    alert("El navegador ha bloqueado la ventana de la factura. Permite las ventanas emergentes para esta web.");
-    return;
-  }
-  w.document.open();
-  w.document.write(invoiceHtml(inv, `${window.location.origin}${INVOICE_LOGO_PATH}`));
-  w.document.close();
+  closeViewer?.();
+
+  const host = document.createElement("div");
+  host.id = "invoice-viewer";
+  // pointer-events: los diálogos abiertos desactivan los clics en el resto de la página.
+  host.style.cssText =
+    "position:fixed;inset:0;z-index:2147483000;background:#fff;overflow:auto;pointer-events:auto;-webkit-overflow-scrolling:touch;";
+  // En un shadow root los estilos de la factura y los de la web no se mezclan.
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `<style>${INVOICE_CSS}</style>
+<div class="sheet">
+  <div class="toolbar">
+    <button type="button" data-action="back">← Volver</button>
+    <button type="button" data-action="print">Descargar / imprimir PDF</button>
+  </div>
+  ${invoiceHtml(inv, `${window.location.origin}${INVOICE_LOGO_PATH}`)}
+</div>`;
+
+  const printCss = document.createElement("style");
+  printCss.textContent = INVOICE_PRINT_CSS;
+  const prevTitle = document.title;
+  const prevOverflow = document.body.style.overflow;
+
+  const back = () => window.history.back();
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    e.stopPropagation();
+    back();
+  };
+  const close = () => {
+    window.removeEventListener("popstate", close);
+    document.removeEventListener("keydown", onKey, true);
+    host.remove();
+    printCss.remove();
+    document.title = prevTitle;
+    document.body.style.overflow = prevOverflow;
+    closeViewer = null;
+  };
+  closeViewer = close;
+
+  // Que tocar la factura no cuente como «clic fuera» del diálogo que haya debajo.
+  host.addEventListener("pointerdown", (e) => e.stopPropagation());
+  root.querySelector('[data-action="back"]')!.addEventListener("click", back);
+  root.querySelector('[data-action="print"]')!.addEventListener("click", () => window.print());
+
+  // El PDF se guarda con el título de la página como nombre.
+  document.title = `Factura_${inv.code}`;
+  document.body.style.overflow = "hidden";
+  document.head.appendChild(printCss);
+  document.body.appendChild(host);
+
+  // Una entrada en el historial: el gesto o botón «atrás» también cierra la factura.
+  window.history.pushState({ ...window.history.state, invoiceViewer: true }, "");
+  window.addEventListener("popstate", close);
+  document.addEventListener("keydown", onKey, true);
 }
